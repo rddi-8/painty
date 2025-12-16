@@ -69,6 +69,9 @@ format_extra :: proc(fmt: ^Format, extra_samples: bool, do_swap: bool, endian16:
     fmt^ |= Format(do_swap) << 10
     fmt^ |= Format(endian16) << 11
 }
+format_swap_first :: proc(fmt: ^Format, swap_first: bool) {
+    fmt^ |= Format(swap_first) << 14
+}
 format_pixel :: proc(fmt: ^Format, bytes: int, channels: int) {
     fmt^ |= Format(bytes)
     fmt^ |= Format(channels) << 3
@@ -101,6 +104,15 @@ get_format_rgb8:: proc() -> Format {
     fmt: Format = 0
     format_colorspace(&fmt, .PT_RGB)
     format_pixel(&fmt, 1, 3)
+    return fmt
+}
+
+get_format_bgra8 :: proc() -> Format {
+    fmt: Format = 0
+    format_colorspace(&fmt, .PT_RGB)
+    format_extra(&fmt, true , true, false)
+    format_pixel(&fmt, 1, 3)
+    format_swap_first(&fmt, true)
     return fmt
 }
 

@@ -5,6 +5,7 @@ import "core:math"
 import "core:c"
 import sdl "vendor:sdl3"
 import sdlt "vendor:sdl3/ttf"
+import sdli "vendor:sdl3/image"
 import "vendor:microui"
 
 import "lcms"
@@ -14,22 +15,35 @@ SDL_Window: ^sdl.Window
 SDL_Renderer: ^sdl.Renderer
 SDL_Texture: ^sdl.Texture
 gDone: int
-WINDOW_WIDTH : c.int : 1920 
-WINDOW_HEIGHT : c.int : 1080
+WINDOW_WIDTH : c.int : 2200
+WINDOW_HEIGHT : c.int : 1200
 last_ticks: u64
 
 slider_red: microui.Real = 100
 slider_green: microui.Real = 100
 slider_blue: microui.Real = 100
 slider_alpha: microui.Real = 100
+slider_opacity: microui.Real = 1
+pressure_opacity: microui.Real = 1
 
 slider_size: microui.Real = 64
+slider_size2: microui.Real = 64
 BRUSH_W: i32 = 64
 BRUSH_H: i32 = 64
 
+ui_window_rect: sdl.Rect
 redraw_brush: bool = false
+update_rect: sdl.Rect
+commit_stroke: bool = false
+
+lastpos: [2]f32
+mousepos: [2]f32
 
 use_icc: bool = false
+use_opacity: bool = false
+flow_pressure: bool = false
+
+save_img: bool = false
 
 update :: proc() -> bool {
     event: sdl.Event
@@ -97,51 +111,157 @@ log_lcms_error :: proc(ctx: lcms.Context, error_code: lcms.ErrorCode, text: cstr
     fmt.printfln("LCMS ERROR: %s : %s", error_code, text)
 }
 
+map_xy :: proc(surface: ^sdl.Surface, x: int, y: int) -> int {
+    return x + y * int(surface.w)
+}
+
+c_to_f :: proc(color: [4]u8) -> [4]f32 {
+    f_col: [4]f32
+    f_col.r = f32(color.r) / 255.0
+    f_col.g = f32(color.g) / 255.0
+    f_col.b = f32(color.b) / 255.0
+    f_col.a = f32(color.a) / 255.0
+    return f_col
+}
+
+f_to_c :: proc(color: [4]f32) -> [4]u8 {
+    u_col: [4]u8
+    u_col.r = u8(color.r * 255)
+    u_col.g = u8(color.g * 255)
+    u_col.b = u8(color.b * 255)
+    u_col.a = u8(color.a * 255)
+    return u_col
+}
+
+custom_blend :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
+    src_cv := ([^][4]f16)(src.pixels)
+    dst_cv := ([^][4]f16)(dest.pixels)
+
+    sdl.LockSurface(src)
+    sdl.LockSurface(dest)
+    
+    opacity: f16 = f16(clamp(pressure_opacity*2 * slider_opacity, 0, 1))
+
+    for ys in 0..<int(src.h) {
+        for xs in 0..<int(src.w) {
+            if xs + x < 0 || ys + y < 0 do continue
+            if xs + x + 1 > int(dest.w) do continue
+            if ys + y + 1 > int(dest.h) do continue
+            src_c := src_cv[map_xy(src, xs, ys)]
+            dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
+            fin_c: [4]f16
+
+            fin_c.rgb = src_c.rgb
+            // fin_c.rgb = (src_c.rgb * src_c.a)
+            // fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
+            fin_c.a = math.max(opacity*src_c.a, dst_c.a)
+            // fin_c.a = f16(slider_opacity)
+            dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
+
+        }
+    }
+
+    sdl.UnlockSurface(src)
+    sdl.UnlockSurface(dest)
+}
+
+custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
+    src_cv := ([^][4]f16)(src.pixels)
+    dst_cv := ([^][4]f16)(dest.pixels)
+
+    sdl.LockSurface(src)
+    sdl.LockSurface(dest)
+    
+    opacity: f16 = f16(clamp(slider_opacity*1.6, 0, 1))
+
+    for ys in 0..<int(src.h) {
+        for xs in 0..<int(src.w) {
+            if xs + x < 0 || ys + y < 0 do continue
+            if xs + x + 1 > int(dest.w) do continue
+            if ys + y + 1 > int(dest.h) do continue
+            src_c := src_cv[map_xy(src, xs, ys)]
+            dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
+            fin_c: [4]f16
+
+            fin_c.rgb = src_c.rgb
+            // fin_c.rgb = (src_c.rgb * src_c.a)
+            fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
+            // fin_c.a = math.max(opacity*src_c.a, dst_c.a)
+            // fin_c.a = f16(slider_opacity)
+            dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
+
+        }
+    }
+
+    sdl.UnlockSurface(src)
+    sdl.UnlockSurface(dest)
+}
+
 main :: proc() {
+    lastpos.x = -100000
     fmt.println("hmmm")
     fmt.printfln("lcms_ver: ", lcms.GetEncodedCMMversion())
     lcms.SetLogErrorHandler(log_lcms_error)
 
     fmt.println("Loading srgb icm")
     // in_profile := lcms.OpenProfileFromFile("sRGB.icm", "r")
-    in_profile := lcms.Create_sRGBProfile()
+    in_profile := lcms.OpenProfileFromFile("sRGB.icm", "r")
     fmt.println("Loading dest icm")  
 
     out_profile := lcms.OpenProfileFromFile("profile.icm", "r")
     fmt.println("creating transform")
     h_transform := lcms.CreateTransform(
         in_profile,
-        lcms.get_format_rgba8(),
+        lcms.get_format_bgra8(),
         out_profile,
-        lcms.get_format_rgba8(),
+        lcms.get_format_bgra8(),
         .PERCEPTUAL,
-        u32(lcms.dwFlags.BLACKPOINTCOMPENSATION)
+        u32(lcms.dwFlags.COPY_ALPHA)
     )
 
-
+    opacity_blend := sdl.ComposeCustomBlendMode(.SRC_ALPHA, .ONE_MINUS_SRC_ALPHA, .ADD, .SRC_ALPHA, .ZERO, .SUBTRACT)
     
     mu_context = new(microui.Context)
     microui.init(mu_context)
     mu_context.text_height = mu_text_height
     mu_context.text_width = mu_text_width
-
+    
     if !sdl.Init({.VIDEO}) do fmt.printfln("Opps {}", sdl.GetError())
 
+    update_rect = { x = 0, y = 0, w = 0, h = 0}
+    
     if !sdlt.Init() do fmt.printfln("Opps {}", sdl.GetError())
     
     ui_font = sdlt.OpenFont("DroidSans.ttf", 12)
     if (ui_font == nil) do print_err()
-
-    window := sdl.CreateWindow("SDL Appy", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
+    
+    
+    // window := sdl.CreateWindow("SDL Appy", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
+    window: ^sdl.Window
+    renderer: ^sdl.Renderer
+    if !sdl.CreateWindowAndRenderer("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {}, &window, &renderer) do print_err()
     surface := sdl.GetWindowSurface(window)
 
+    rendererr := sdl.GetRenderer(window)
+    if rendererr == nil do print_err()
+    canvas_tex := sdl.CreateTexture(renderer, .RGBA64_FLOAT, .STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT)
+    if canvas_tex == nil do print_err()
+    stroke_tex := sdl.CreateTexture(renderer, .RGBA64_FLOAT, .STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT)
+    if canvas_tex == nil do print_err()
+    surface_tex := sdl.CreateTexture(renderer, .XRGB8888, .STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT)
+    if surface_tex == nil do print_err()
+
+    
+    
     surface_cs := sdl.GetSurfaceColorspace(surface)
     fmt.printfln("c: {}", surface_cs)
+    
+    canvas_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
+    stroke_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
+    fmt.printfln("canvas color: {}", sdl.GetSurfaceColorspace(canvas_layer))
 
-    canvas_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA32)
-    sdl.SetSurfaceBlendMode(canvas_layer, {.BLEND})
-    // sdl.ClearSurface(canvas_layer, 1, 1, 1, 1) 
-    ui_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA32)   
+    ui_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA32)
+    ui_tex := sdl.CreateTextureFromSurface(renderer, ui_layer)  
 
 
     formatInfo := sdl.GetPixelFormatDetails(surface.format)
@@ -158,24 +278,24 @@ main :: proc() {
     fmt.printfln("MUST_LOCK window {}", sdl.MUSTLOCK(surface))
     
 
-    brushFmt := sdl.GetPixelFormatDetails(brush.format)
-    brushCol := sdl.MapRGBA(brushFmt, nil, 100, 100, 100, 100)
-    brushBg := sdl.MapRGBA(brushFmt, nil, 100, 100, 100, 0)
+    // brushFmt := sdl.GetPixelFormatDetails(brush.format)
+    // brushCol := sdl.MapRGBA(brushFmt, nil, 100, 100, 100, 100)
+    // brushBg := sdl.MapRGBA(brushFmt, nil, 100, 100, 100, 0)
 
     // if(!sdl.LockSurface(brush)) do fmt.printfln("Error: {}", sdl.GetError())
-    brushCanvas: [^]sdl.Uint32 = ([^]sdl.Uint32)(brush.pixels)
-    for y in 0..<BRUSH_H {
-        for x in 0..<BRUSH_W {
-            if ( ((x - BRUSH_W/2)*(x - BRUSH_W/2) + (y - BRUSH_H/2)*(y - BRUSH_H/2)) <= (BRUSH_H/2)*(BRUSH_W/2)) {
-                pixelOffset := brush.pitch / 4 * y + x
-                brushCanvas[pixelOffset] = brushCol
-            }
-            else {
-                pixelOffset := brush.pitch / 4 * y + x
-                brushCanvas[pixelOffset] = brushBg
-            }
-        }
-    }
+    // brushCanvas: [^]sdl.Uint32 = ([^]sdl.Uint32)(brush.pixels)
+    // for y in 0..<BRUSH_H {
+    //     for x in 0..<BRUSH_W {
+    //         if ( ((x - BRUSH_W/2)*(x - BRUSH_W/2) + (y - BRUSH_H/2)*(y - BRUSH_H/2)) <= (BRUSH_H/2)*(BRUSH_W/2)) {
+    //             pixelOffset := brush.pitch / 4 * y + x
+    //             brushCanvas[pixelOffset] = brushCol
+    //         }
+    //         else {
+    //             pixelOffset := brush.pitch / 4 * y + x
+    //             brushCanvas[pixelOffset] = brushBg
+    //         }
+    //     }
+    // }
     // sdl.UnlockSurface(brush)
 
     quit: bool = false;
@@ -196,8 +316,12 @@ main :: proc() {
         }
     }
 
+    redraw_brush = true
+
     main_loop: for {
         surface = sdl.GetWindowSurface(window)
+        update_rect = { x = 0, y = 0, w = 0, h = 0}
+
         frame_time: u64 = sdl.GetTicksNS() - last_ticks
         last_ticks = sdl.GetTicksNS()
         event: sdl.Event
@@ -206,24 +330,26 @@ main :: proc() {
         if redraw_brush {
             // fmt.println("redraw brush")
             brushFmt := sdl.GetPixelFormatDetails(brush.format)
-            brushCol := sdl.MapRGBA(brushFmt, nil, u8(slider_red), u8(slider_green), u8(slider_blue), u8(slider_alpha))
-            brushBg := sdl.MapRGBA(brushFmt, nil, u8(slider_red), u8(slider_green), u8(slider_blue), 0)
+            brushCol: [4]f16 = {f16(slider_red / 255.0), f16(slider_green / 255.0), f16(slider_blue / 255.0), f16(slider_alpha / 255.0)}
+            brushBg: [4]f16 = {f16(slider_red / 255.0), f16(slider_green / 255.0), f16(slider_blue / 255.0), 0}
+            brushCol.r = math.pow(brushCol.r, 2.2)
+            brushCol.g = math.pow(brushCol.g, 2.2)
+            brushCol.b = math.pow(brushCol.b, 2.2)
+            brushBg.r = math.pow(brushBg.r, 2.2)
+            brushBg.g = math.pow(brushBg.g, 2.2)
+            brushBg.b = math.pow(brushBg.b, 2.2)
             sdl.DestroySurface(brush)
-            brush = sdl.CreateSurface(BRUSH_W, BRUSH_H, .RGBA32)
-            sdl.SetSurfaceBlendMode(brush, {.BLEND})
-            if (brush == nil) {
-                print_err()
-            }
-            brushCanvas: [^]sdl.Uint32 = ([^]sdl.Uint32)(brush.pixels)
+            brush = sdl.CreateSurface(BRUSH_W, BRUSH_H, .RGBA64_FLOAT)
+            sdl.ClearSurface(brush, 0, 0, 0, 0)
+            
+            brushCanvas: [^][4]f16 = ([^][4]f16)(brush.pixels)
             for y in 0..<BRUSH_H {
                 for x in 0..<BRUSH_W {
                     if ( ((x - BRUSH_W/2)*(x - BRUSH_W/2) + (y - BRUSH_H/2)*(y - BRUSH_H/2)) <= (BRUSH_H/2)*(BRUSH_W/2)) {
-                        pixelOffset := brush.pitch / 4 * y + x
-                        brushCanvas[pixelOffset] = brushCol
+                        brushCanvas[map_xy(brush, int(x), int(y))] = brushCol
                     }
                     else {
-                        pixelOffset := brush.pitch / 4 * y + x
-                        brushCanvas[pixelOffset] = brushBg
+                        brushCanvas[map_xy(brush, int(x), int(y))] = brushBg
                     }
                 }
             }
@@ -239,18 +365,21 @@ main :: proc() {
                     break main_loop
                 case .KEY_DOWN:
                     if event.key.scancode == .ESCAPE do break main_loop
+                    if event.key.scancode == .LALT {
+                        r, g, b, a: u8
+                        pick_col := sdl.ReadSurfacePixel(canvas_layer, i32(mousepos.x), i32(mousepos.y), &r, &g, &b, &a)
+                        slider_red = f32(r)
+                        slider_green = f32(g)
+                        slider_blue = f32(b)
+                        // slider_alpha = f32(a)
+                        redraw_brush = true
+                    }
                 case .MOUSE_BUTTON_DOWN:
                     mu_mouse: microui.Mouse
                     mu_mouse = microui.Mouse.LEFT
                     microui.input_mouse_down(mu_context, i32(event.motion.x), i32(event.motion.y), mu_mouse)
                     r,g,b,a :sdl.Uint8
-                    fmt.printfln("------")
-                    sdl.ReadSurfacePixel(surface, c.int(event.button.x), c.int(event.button.y), &r, &g, &b,&a)
-                    fmt.printfln("surf -- r:{} g:{} b:{} a:{}", r,g,b,a)
-                    sdl.ReadSurfacePixel(canvas_layer, c.int(event.button.x), c.int(event.button.y), &r, &g, &b,&a)
-                    fmt.printfln("canv -- r:{} g:{} b:{} a:{}", r,g,b,a)
-                    sdl.ReadSurfacePixel(brush, BRUSH_W / 2, BRUSH_H / 2, &r, &g, &b,&a)
-                    fmt.printfln("brus -- r:{} g:{} b:{} a:{}", r,g,b,a)
+
                     if event.button.button == 3 {
                         r, g, b, a: u8
                         pick_col := sdl.ReadSurfacePixel(canvas_layer, i32(event.motion.x), i32(event.motion.y), &r, &g, &b, &a)
@@ -266,14 +395,52 @@ main :: proc() {
                     microui.input_mouse_up(mu_context, i32(event.motion.x), i32(event.motion.y), mu_mouse)
                 case .MOUSE_MOTION:
                     microui.input_mouse_move(mu_context, i32(event.motion.x), i32(event.motion.y))
-                    if event.motion.state == {.LEFT} {
+                    mousepos = {event.motion.x, event.motion.y}
+                
+                case .PEN_MOTION:
+                    if event.pmotion.pen_state == {.DOWN} {
                         // fmt.printfln("draw px {} : {}", event.motion.x, event.motion.y)
                         // draw_pixel(event.motion.x, event.motion.y, window, red)
-                        destRect.h = BRUSH_H
-                        destRect.w = BRUSH_W
-                        destRect.x = i32(event.motion.x) - BRUSH_W/2
-                        destRect.y = i32(event.motion.y) - BRUSH_H/2
-                        sdl.BlitSurface(brush, nil, canvas_layer, &destRect)
+                        if (ui_window_rect.x < i32(event.pmotion.x) && i32(event.pmotion.x) < ui_window_rect.x + ui_window_rect.w &&
+                            ui_window_rect.y < i32(event.pmotion.y) && i32(event.pmotion.y) < ui_window_rect.y + ui_window_rect.h) {
+
+                        }
+                        else
+                        {
+                            destRect.h = BRUSH_H
+                            destRect.w = BRUSH_W
+                            destRect.x = i32(event.pmotion.x) - BRUSH_W/2
+                            destRect.y = i32(event.pmotion.y) - BRUSH_H/2
+                            
+                            // if flow_pressure do sdl.SetSurfaceAlphaMod(brush, u8(slider_opacity * 255))
+                            
+                            // sdl.SetSurfaceBlendMode(brush, opacity_blend)
+
+                            // sdl.SetSurfaceBlendMode(canvas_layer, opacity_blend)
+
+                            curpos: [2]f32 = {event.pmotion.x, event.pmotion.y}
+                            delta := curpos - lastpos
+                            dist: f32 = math.sqrt(delta.x*delta.x + delta.y*delta.y)
+                            step: f32 = max(f32(BRUSH_H/12), 1)
+                            dir := delta/dist
+
+                            if lastpos.x >= 0 {
+                                for t: f32; t < dist; t = t + step {
+                                    pos: [2]f32 = lastpos + dir * t
+                                    if use_opacity do custom_blend(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
+                                    else do custom_blend_basic(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
+                                } 
+                            }
+                            else {
+                                if use_opacity do custom_blend(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
+                                else do custom_blend_basic(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
+                            }
+
+                            
+                            lastpos = curpos
+                            update_rect = destRect
+
+                        }
                     }
                     if event.motion.state == {.RIGHT} {
                         r, g, b, a: u8
@@ -284,6 +451,13 @@ main :: proc() {
                         // slider_alpha = f32(a)
                         redraw_brush = true
                     }
+                case .PEN_AXIS:
+                    if event.paxis.axis == .PRESSURE {
+                        pressure_opacity = event.paxis.value
+                    }
+                case .PEN_UP:
+                    commit_stroke = true
+                    lastpos.x = -100000
             }
 
             
@@ -291,23 +465,32 @@ main :: proc() {
 
         microui.begin(mu_context)
 
-        microui.begin_window(mu_context, "Helloooo", {10, 10, 320, 400})
+        microui.begin_window(mu_context, "Helloooo", {10, 10, 320, 530})
 
         res := microui.button(mu_context, "Button")
         res_toggle := microui.checkbox(mu_context, "use ICC", &use_icc)
-        if (.SUBMIT in res) do fmt.println("button L pressy")
+        if (.SUBMIT in res) do save_img = true
         microui.label(mu_context, fmt.aprintf("time: %.2f ms", f32(frame_time)/1000000.0))
-        microui.layout_row(mu_context, {300}, 0)
+        microui.layout_row(mu_context, {300}, 26)
         n_rect := microui.layout_next(mu_context)
         microui.draw_rect(mu_context, n_rect, {u8(slider_red), u8(slider_green), u8(slider_blue), 255})
         res_r := microui.slider(mu_context, &slider_red, 0, 255)
         res_g := microui.slider(mu_context, &slider_green, 0, 255)
         res_b := microui.slider(mu_context, &slider_blue, 0, 255)
+        microui.label(mu_context, "flow:")
+        microui.checkbox(mu_context, "flow P", &flow_pressure)
         res_a := microui.slider(mu_context, &slider_alpha, 0, 255)
+        microui.label(mu_context, "opacity:")
+        microui.checkbox(mu_context, "opacity p", &use_opacity)
+        res_o := microui.slider(mu_context, &slider_opacity, 0, 1)
         microui.label(mu_context, "size:")
-        res_size := microui.slider(mu_context, &slider_size, 1, 1000)
+        res_size := microui.slider(mu_context, &slider_size, 1, 400)
+        if slider_size > 24 do slider_size2 = 24
+        if slider_size <= 24 do slider_size2 = slider_size
+        res_size2 := microui.slider(mu_context, &slider_size2, 1, 24)
+        if slider_size2 < 24 do slider_size = slider_size2
 
-        if (.CHANGE in res_size) {
+        if (.CHANGE in res_size || .CHANGE in res_size2) {
             BRUSH_H = i32(slider_size)
             BRUSH_W = i32(slider_size)
             redraw_brush = true
@@ -318,8 +501,9 @@ main :: proc() {
         }
 
         ui_window := microui.get_current_container(mu_context)
-        microui.label(mu_context, fmt.aprintf("{}, {}", ui_window.rect.w, ui_window.rect.h))
         microui.end_window(mu_context)
+
+        
 
         // microui.begin_window(mu_context, "Hmmm", {10, 10, 200, 400})
         // res1 := microui.button(mu_context, "Button 1")
@@ -334,7 +518,7 @@ main :: proc() {
         // if(!sdl.LockSurface(brush)) do fmt.printfln("Error: {}", sdl.GetError())
         
 
-        // sdl.ClearSurface(ui_layer, 0, 0, 0, 0)
+        sdl.ClearSurface(ui_layer, 0, 0, 0, 0)
         mu_command: ^microui.Command
         for microui.next_command(mu_context, &mu_command) {
             #partial switch cmd in mu_command.variant {
@@ -345,26 +529,75 @@ main :: proc() {
                     
             }
         }
+        if true {
+            // sdl.ClearSurface(surface, 0, 0, 0, 1)
+            // sdl.BlitSurface(canvas_layer, nil, surface, nil)
+        }
+        else {
+        //    sdl.BlitSurface(canvas_layer, &update_rect, surface, &update_rect)
+        }
+        ui_window_rect = { w = ui_window.rect.w, h = ui_window.rect.h, x = ui_window.rect.x, y = ui_window.rect.y}
+        if (save_img) {
+            sdli.SavePNG(canvas_layer, "img.png")
+            sdli.SavePNG(surface, "img_bg.png")
+            save_img = false
+        }
+        // sdl.BlitSurface(ui_layer, &ui_window_rect, surface, &ui_window_rect)
 
-        // sdl.ClearSurface(surface, 0, 0, 0, 1)
-        sdl.BlitSurface (canvas_layer, nil, surface, nil)
-        ui_window_rect: sdl.Rect = { w = ui_window.rect.w, h = ui_window.rect.h, x = ui_window.rect.x, y = ui_window.rect.y}
-        sdl.BlitSurface(ui_layer, &ui_window_rect, surface, &ui_window_rect)
-        // sdl.BlitSurface(ui_layer, nil, surface, nil)
+        if commit_stroke {
+            
+            sdl.BlitSurface(stroke_layer, nil, canvas_layer, nil)
 
+            // custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
+            sdl.ClearSurface(stroke_layer, 0, 0, 0, 0)
+            commit_stroke = false
+        }
+        
+        
+        canvas_tex_pixels: rawptr
+        ctex_pitch: c.int
+        // if !sdl.LockTexture(canvas_tex, nil, &canvas_tex_pixels, &ctex_pitch) do print_err()
+        // pixls: [^][4]f16 = ([^][4]f16)(canvas_tex_pixels)
+        // clor: [4]f16 = { 1, 1, 1, 1}
+        // for i in 0..<100 {
+        //     pixls[i] = clor
+        // }
+        // sdl.UnlockTexture(canvas_tex)
+        
+        sdl.RenderClear(renderer)
+        sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
+        sdl.RenderTexture(renderer, canvas_tex, nil, nil)
+        sdl.UpdateTexture(stroke_tex, nil, stroke_layer.pixels, stroke_layer.pitch)
+        sdl.RenderTexture(renderer, stroke_tex, nil, nil)
         if use_icc {
-
-            surface_copy := sdl.DuplicateSurface(surface)
+            sdl.RenderClear(renderer)
+            sdl.SetSurfaceColorspace(surface, .RGB_DEFAULT)
+            sdl.ClearSurface(surface, 0, 0, 0, 1)
+            sdl.BlitSurface(canvas_layer, nil, surface, nil)
+            lcms.DoTransform(h_transform, surface.pixels, surface.pixels, u32(surface.h * surface.w))
+            sdl.UpdateTexture(surface_tex, nil, surface.pixels, surface.pitch)
+            sdl.RenderTexture(renderer, surface_tex, nil, nil)
+        }
+        sdl.UpdateTexture(ui_tex, nil, ui_layer.pixels, ui_layer.pitch)
+        sdl.RenderTexture(renderer, ui_tex, nil, nil)
+        
+        
+        sdl.RenderPresent(renderer)
+        
+        if use_icc {
+            // surface_copy := sdl.DuplicateSurface(surface)
             // sdl.LockSurface(surface)
-            lcms.DoTransform(h_transform, surface.pixels, surface_copy.pixels, u32(surface.h * surface.w))
+            lcms.DoTransform(h_transform, surface.pixels, surface.pixels, u32(surface.h * surface.w))
             // sdl.UnlockSurface(surface)
-            sdl.BlitSurface(surface_copy, nil, surface, nil)
-            sdl.DestroySurface(surface_copy)
+            // sdl.SetSurfaceColorspace(surface, .RGB_DEFAULT)
+            // sdl.BlitSurface(surface_copy, nil, surface, nil)
+            // sdl.DestroySurface(surface_copy)
+        
         }
 
         sdl.UpdateWindowSurface(window)
     }
-
+    
     sdl.DestroyWindow(window)
     sdl.Quit()
 }
