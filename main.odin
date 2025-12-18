@@ -8,6 +8,7 @@ import sdlt "vendor:sdl3/ttf"
 import sdli "vendor:sdl3/image"
 import "vendor:microui"
 
+
 import "lcms"
 
 gFramebuffer: ^int
@@ -15,9 +16,12 @@ SDL_Window: ^sdl.Window
 SDL_Renderer: ^sdl.Renderer
 SDL_Texture: ^sdl.Texture
 gDone: int
-WINDOW_WIDTH : c.int : 2200
+WINDOW_WIDTH : c.int : 1600
 WINDOW_HEIGHT : c.int : 1200
 last_ticks: u64
+brush_avg_sum: u64
+avg_count: u64
+avg_dab_time: f64
 
 slider_red: microui.Real = 100
 slider_green: microui.Real = 100
@@ -133,9 +137,53 @@ f_to_c :: proc(color: [4]f32) -> [4]u8 {
     return u_col
 }
 
-custom_blend :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
+
+custom_blend :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) #no_bounds_check #no_type_assert {
     src_cv := ([^][4]f16)(src.pixels)
     dst_cv := ([^][4]f16)(dest.pixels)
+
+    sdl.LockSurface(src)
+    sdl.LockSurface(dest)
+    
+    opacity: f16 = f16(clamp(pressure_opacity*2 * slider_opacity, 0, 1))
+    cxl,cxr,cyu,cyb: int // clipping vars
+    cxl = max(0, -x)
+    cyu = max(0, -y)
+    cxr = min(int(src.w), int(dest.w) - x)
+    cyb = min(int(src.h), int(dest.h) - y)
+
+    // fmt.printfln("cxl: {}, cyu: {}, cxr: {}, cyb: {}", cxl, cyu, cxr, cyb)
+
+    for ys in cyu..<cyb {
+        for xs in cxl..<cxr {
+            // if xs + x < 0 || ys + y < 0 do continue
+            // if xs + x + 1 > int(dest.w) do continue
+            // if ys + y + 1 > int(dest.h) do continue
+            src_c := src_cv[map_xy(src, xs, ys)]
+            dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
+            // fin_c: [4]f16
+
+            fin_c := src_c
+            // fin_c.rgb = (src_c.rgb * src_c.a)
+            // fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
+            fin_c.a = math.max(opacity*src_c.a, dst_c.a)
+            // fin_c.a = f16(slider_opacity)
+            dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
+
+        }
+    }
+
+    sdl.UnlockSurface(src)
+    sdl.UnlockSurface(dest)
+}
+
+custom_blend_simd :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
+    src_cv := ([^][4]f16)(src.pixels)
+    dst_cv := ([^][4]f16)(dest.pixels)
+
+    col_lane :: #simd [16]f16
+
+    cols: col_lane = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}
 
     sdl.LockSurface(src)
     sdl.LockSurface(dest)
@@ -198,6 +246,15 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
 }
 
 main :: proc() {
+
+    col_lane :: #simd [32]f16
+
+    cols: col_lane = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}
+    c1: col_lane = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+
+    rrr := cols + c1
+    fmt.println(rrr)
+
     lastpos.x = -100000
     fmt.println("hmmm")
     fmt.printfln("lcms_ver: ", lcms.GetEncodedCMMversion())
@@ -427,13 +484,30 @@ main :: proc() {
                             if lastpos.x >= 0 {
                                 for t: f32; t < dist; t = t + step {
                                     pos: [2]f32 = lastpos + dir * t
+                                    last_dab_time := sdl.GetTicksNS()
+                                    
                                     if use_opacity do custom_blend(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
-                                    else do custom_blend_basic(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
+                                    // else do custom_blend_basic(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
+                                    else do sdl.BlitSurface(brush, nil, stroke_layer, &destRect)
+                                    ticks: u64 = sdl.GetTicksNS() - last_dab_time
+                                    avg_count += 1
+                                    if avg_count == 1 {brush_avg_sum = 0}
+                                    brush_avg_sum += ticks
+                                    avg_dab_time = f64(brush_avg_sum)/f64(avg_count)
                                 } 
                             }
                             else {
+                                last_dab_time := sdl.GetTicksNS()
+
                                 if use_opacity do custom_blend(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
-                                else do custom_blend_basic(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
+                                // else do custom_blend_basic(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
+                                else do sdl.BlitSurface(brush, nil, stroke_layer, &destRect)
+
+                                ticks: u64 = sdl.GetTicksNS() - last_dab_time
+                                avg_count += 1
+                                if avg_count == 1 {brush_avg_sum = 0}
+                                brush_avg_sum += ticks
+                                avg_dab_time = f64(brush_avg_sum)/f64(avg_count)
                             }
 
                             
@@ -458,6 +532,7 @@ main :: proc() {
                 case .PEN_UP:
                     commit_stroke = true
                     lastpos.x = -100000
+                    avg_count = 0
             }
 
             
@@ -471,6 +546,7 @@ main :: proc() {
         res_toggle := microui.checkbox(mu_context, "use ICC", &use_icc)
         if (.SUBMIT in res) do save_img = true
         microui.label(mu_context, fmt.aprintf("time: %.2f ms", f32(frame_time)/1000000.0))
+        microui.label(mu_context, fmt.aprintf("dab: %.2f µs", avg_dab_time/1000.0))
         microui.layout_row(mu_context, {300}, 26)
         n_rect := microui.layout_next(mu_context)
         microui.draw_rect(mu_context, n_rect, {u8(slider_red), u8(slider_green), u8(slider_blue), 255})
