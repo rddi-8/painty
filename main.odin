@@ -1,5 +1,6 @@
 package main
 
+import "core:mem"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -201,9 +202,9 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
 
     for ys in 0..<int(src.h) {
         for xs in 0..<int(src.w) {
-            if xs + x < 0 || ys + y < 0 do continue
-            if xs + x + 1 > int(dest.w) do continue
-            if ys + y + 1 > int(dest.h) do continue
+            // if xs + x < 0 || ys + y < 0 do continue
+            // if xs + x + 1 > int(dest.w) do continue
+            // if ys + y + 1 > int(dest.h) do continue
             src_c := src_cv[map_xy(src, xs, ys)]
             dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
             fin_c: [4]f16
@@ -211,11 +212,54 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
 
             // src_c.rgb *= src_c.a
             fin_c.rgb = src_c.rgb * src_c.a + dst_c.rgb * (1 - src_c.a)
+            
             // fin_c.rgb = (src_c.rgb * src_c.a)
             fin_c.a = src_c.a + dst_c.a * (1 - src_c.a)
+            
+
+            // fin_c.a = 1
             // fin_c.a = math.max(opacity*src_c.a, dst_c.a)
             // fin_c.a = f16(slider_opacity)
             dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
+
+        }
+    }
+
+    sdl.UnlockSurface(src)
+    sdl.UnlockSurface(dest)
+}
+
+custom_blend_basic_premult :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
+    src_cv := ([^][4]f16)(src.pixels)
+    dst_cv := ([^][4]f16)(dest.pixels)
+
+    sdl.LockSurface(src)
+    sdl.LockSurface(dest)
+    
+    opacity: f16 = f16(clamp(slider_opacity*1.6, 0, 1))
+    invpow: [3]f16 = {2.2, 2.2, 2.2}
+
+    for ys in 0..<int(src.h) {
+        for xs in 0..<int(src.w) {
+            // if xs + x < 0 || ys + y < 0 do continue
+            // if xs + x + 1 > int(dest.w) do continue
+            // if ys + y + 1 > int(dest.h) do continue
+            src_c := src_cv[map_xy(src, xs, ys)]
+            dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
+            fin_c: [4]f16
+
+
+            // src_c.rgb = src_c.rgb * (1/src_c.a)
+            // fin_c.rgb = src_c.rgb * src_c.a
+            
+            // // fin_c.rgb = (src_c.rgb * src_c.a)
+            // fin_c.a = src_c.a + dst_c.a * (1 - src_c.a)
+            
+            // src_c.rgb = linalg.pow(src_c.rgb, invpow)
+            // fin_c.a = 1
+            // fin_c.a = math.max(opacity*src_c.a, dst_c.a)
+            // fin_c.a = f16(slider_opacity)
+            dst_cv[map_xy(dest, xs + x, ys + y)] = src_c
 
         }
     }
@@ -228,6 +272,17 @@ print_tex_prop :: proc(tex: ^sdl.Texture, name: string) {
     props := sdl.GetTextureProperties(tex)
     color_space := sdl.GetNumberProperty(props, sdl.PROP_TEXTURE_COLORSPACE_NUMBER, -88)
     fmt.printfln("{} color_space: {}", name, sdl.Colorspace(color_space))
+}
+
+update_texture :: proc(source: ^sdl.Surface, tex: ^sdl.Texture) {
+    tex_px: ^rawptr
+    tex_pitch: ^i32
+    sdl.LockTexture(tex, nil, tex_px, tex_pitch)
+    sdl.LockSurface(source)
+    assert(source.pitch == tex_pitch^)
+    mem.copy(tex_px^, source.pixels, int(source.pitch * source.h))
+    sdl.UnlockTexture(tex)
+    sdl.UnlockSurface(source)
 }
 
 main :: proc() {
@@ -281,7 +336,13 @@ main :: proc() {
     // window := sdl.CreateWindow("SDL Appy", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
     window: ^sdl.Window
     renderer: ^sdl.Renderer
-    if !sdl.CreateWindowAndRenderer("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {}, &window, &renderer) do print_err()
+    window = sdl.CreateWindow("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {})
+    
+    rend_prop := sdl.CreateProperties()
+    sdl.SetNumberProperty(rend_prop, sdl.PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB_LINEAR))
+    sdl.SetPointerProperty(rend_prop, sdl.PROP_RENDERER_CREATE_WINDOW_POINTER, window)
+    renderer = sdl.CreateRendererWithProperties(rend_prop)
+    
     surface := sdl.GetWindowSurface(window)
 
     tex_properties := sdl.CreateProperties()
@@ -294,7 +355,7 @@ main :: proc() {
 
     texs_properties := sdl.CreateProperties()
     if tex_properties == 0 do print_err()
-    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB_LINEAR)) do print_err()
+    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB)) do print_err()
     if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64(sdl.TextureAccess.STREAMING)) do print_err()
     if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64(sdl.PixelFormat.XRGB8888)) do print_err()
     if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64(WINDOW_WIDTH)) do print_err()
@@ -320,6 +381,7 @@ main :: proc() {
     canvas_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
     sdl.ClearSurface(canvas_layer, 0, 0, 0, 1)
     stroke_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
+    stroke_layer_premult := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
     fmt.printfln("canvas color: {}", sdl.GetSurfaceColorspace(canvas_layer))
 
     ui_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA32)
@@ -643,8 +705,8 @@ main :: proc() {
 
         if commit_stroke {
             
-            sdl.BlitSurface(stroke_layer, nil, canvas_layer, nil)
-            // custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
+            // sdl.BlitSurface(stroke_layer, nil, canvas_layer, nil)
+            custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
 
             // custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
             sdl.ClearSurface(stroke_layer, 0, 0, 0, 0)
@@ -665,8 +727,10 @@ main :: proc() {
         sdl.RenderClear(renderer)
         sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
         sdl.RenderTexture(renderer, canvas_tex, nil, nil)
-        // sdl.SetRenderDrawBlendMode(renderer, {.BLEND_PREMULTIPLIED})
-        sdl.UpdateTexture(stroke_tex, nil, stroke_layer.pixels, stroke_layer.pitch)
+        // sdl.SetRenderDrawBlendMode(renderer, {.BLEND})
+        // sdl.SetSurfaceColorspace(stroke_layer, .RGB_DEFAULT)
+        custom_blend_basic_premult(stroke_layer, stroke_layer_premult, 0, 0)
+        sdl.UpdateTexture(stroke_tex, nil, stroke_layer_premult.pixels, stroke_layer_premult.pitch)
         sdl.RenderTexture(renderer, stroke_tex, nil, nil)
         if use_icc {
             sdl.RenderClear(renderer)
