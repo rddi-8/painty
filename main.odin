@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:math"
+import "core:math/linalg"
 import "core:c"
 import sdl "vendor:sdl3"
 import sdlt "vendor:sdl3/ttf"
@@ -42,6 +43,9 @@ commit_stroke: bool = false
 
 lastpos: [2]f32
 mousepos: [2]f32
+lastpress: f32
+currpress: f32
+
 
 use_icc: bool = false
 use_opacity: bool = false
@@ -138,14 +142,14 @@ f_to_c :: proc(color: [4]f32) -> [4]u8 {
 }
 
 
-custom_blend :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) #no_bounds_check #no_type_assert {
+custom_blend :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int, pen_pressure: f32) #no_bounds_check #no_type_assert {
     src_cv := ([^][4]f16)(src.pixels)
     dst_cv := ([^][4]f16)(dest.pixels)
 
-    sdl.LockSurface(src)
-    sdl.LockSurface(dest)
+    // sdl.LockSurface(src)
+    // sdl.LockSurface(dest)
     
-    opacity: f16 = f16(clamp(pressure_opacity*2 * slider_opacity, 0, 1))
+    opacity: f16 = f16(clamp(pen_pressure*2 * slider_opacity, 0, 1))
     cxl,cxr,cyu,cyb: int // clipping vars
     cxl = max(0, -x)
     cyu = max(0, -y)
@@ -164,54 +168,26 @@ custom_blend :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) #no_
             // fin_c: [4]f16
 
             fin_c := src_c
+            // ccc := src_c.r * (f16(xs) / f16(src.w))
+            // fin_c.r = ccc
+            // fin_c.g = ccc
+            // fin_c.b = ccc
+
+
+
             // fin_c.rgb = (src_c.rgb * src_c.a)
             // fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
-            fin_c.a = math.max(opacity*src_c.a, dst_c.a)
+            fin_c.a = math.max(f16(opacity)*src_c.a, dst_c.a)
             // fin_c.a = f16(slider_opacity)
             dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
 
         }
     }
 
-    sdl.UnlockSurface(src)
-    sdl.UnlockSurface(dest)
+    // sdl.UnlockSurface(src)
+    // sdl.UnlockSurface(dest)
 }
 
-custom_blend_simd :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
-    src_cv := ([^][4]f16)(src.pixels)
-    dst_cv := ([^][4]f16)(dest.pixels)
-
-    col_lane :: #simd [16]f16
-
-    cols: col_lane = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}
-
-    sdl.LockSurface(src)
-    sdl.LockSurface(dest)
-    
-    opacity: f16 = f16(clamp(pressure_opacity*2 * slider_opacity, 0, 1))
-
-    for ys in 0..<int(src.h) {
-        for xs in 0..<int(src.w) {
-            if xs + x < 0 || ys + y < 0 do continue
-            if xs + x + 1 > int(dest.w) do continue
-            if ys + y + 1 > int(dest.h) do continue
-            src_c := src_cv[map_xy(src, xs, ys)]
-            dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
-            fin_c: [4]f16
-
-            fin_c.rgb = src_c.rgb
-            // fin_c.rgb = (src_c.rgb * src_c.a)
-            // fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
-            fin_c.a = math.max(opacity*src_c.a, dst_c.a)
-            // fin_c.a = f16(slider_opacity)
-            dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
-
-        }
-    }
-
-    sdl.UnlockSurface(src)
-    sdl.UnlockSurface(dest)
-}
 
 custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int) {
     src_cv := ([^][4]f16)(src.pixels)
@@ -221,6 +197,7 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
     sdl.LockSurface(dest)
     
     opacity: f16 = f16(clamp(slider_opacity*1.6, 0, 1))
+    invpow: [3]f16 = {1/2.2, 1/2.2, 1/2.2}
 
     for ys in 0..<int(src.h) {
         for xs in 0..<int(src.w) {
@@ -231,9 +208,11 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
             dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
             fin_c: [4]f16
 
-            fin_c.rgb = src_c.rgb
+
+            // src_c.rgb *= src_c.a
+            fin_c.rgb = src_c.rgb * src_c.a + dst_c.rgb * (1 - src_c.a)
             // fin_c.rgb = (src_c.rgb * src_c.a)
-            fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
+            fin_c.a = src_c.a + dst_c.a * (1 - src_c.a)
             // fin_c.a = math.max(opacity*src_c.a, dst_c.a)
             // fin_c.a = f16(slider_opacity)
             dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
@@ -243,6 +222,12 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
 
     sdl.UnlockSurface(src)
     sdl.UnlockSurface(dest)
+}
+
+print_tex_prop :: proc(tex: ^sdl.Texture, name: string) {
+    props := sdl.GetTextureProperties(tex)
+    color_space := sdl.GetNumberProperty(props, sdl.PROP_TEXTURE_COLORSPACE_NUMBER, -88)
+    fmt.printfln("{} color_space: {}", name, sdl.Colorspace(color_space))
 }
 
 main :: proc() {
@@ -299,21 +284,41 @@ main :: proc() {
     if !sdl.CreateWindowAndRenderer("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {}, &window, &renderer) do print_err()
     surface := sdl.GetWindowSurface(window)
 
+    tex_properties := sdl.CreateProperties()
+    if tex_properties == 0 do print_err()
+    if !sdl.SetNumberProperty(tex_properties, sdl.PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB_LINEAR)) do print_err()
+    if !sdl.SetNumberProperty(tex_properties, sdl.PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64(sdl.TextureAccess.STREAMING)) do print_err()
+    if !sdl.SetNumberProperty(tex_properties, sdl.PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64(sdl.PixelFormat.RGBA64_FLOAT)) do print_err()
+    if !sdl.SetNumberProperty(tex_properties, sdl.PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64(WINDOW_WIDTH)) do print_err()
+    if !sdl.SetNumberProperty(tex_properties, sdl.PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64(WINDOW_HEIGHT)) do print_err()
+
+    texs_properties := sdl.CreateProperties()
+    if tex_properties == 0 do print_err()
+    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB_LINEAR)) do print_err()
+    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64(sdl.TextureAccess.STREAMING)) do print_err()
+    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64(sdl.PixelFormat.XRGB8888)) do print_err()
+    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64(WINDOW_WIDTH)) do print_err()
+    if !sdl.SetNumberProperty(texs_properties, sdl.PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64(WINDOW_HEIGHT)) do print_err()
+
     rendererr := sdl.GetRenderer(window)
     if rendererr == nil do print_err()
-    canvas_tex := sdl.CreateTexture(renderer, .RGBA64_FLOAT, .STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT)
+    canvas_tex := sdl.CreateTextureWithProperties(renderer, tex_properties)
     if canvas_tex == nil do print_err()
-    stroke_tex := sdl.CreateTexture(renderer, .RGBA64_FLOAT, .STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT)
-    if canvas_tex == nil do print_err()
-    surface_tex := sdl.CreateTexture(renderer, .XRGB8888, .STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT)
+    stroke_tex := sdl.CreateTextureWithProperties(renderer, tex_properties)
+    if stroke_tex == nil do print_err()
+    surface_tex := sdl.CreateTextureWithProperties(renderer, texs_properties)
     if surface_tex == nil do print_err()
 
+    print_tex_prop(canvas_tex, "canvas_tex")
+    print_tex_prop(stroke_tex, "stroke_tex")
+    print_tex_prop(surface_tex, "surface_tex")
     
     
     surface_cs := sdl.GetSurfaceColorspace(surface)
     fmt.printfln("c: {}", surface_cs)
     
     canvas_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
+    sdl.ClearSurface(canvas_layer, 0, 0, 0, 1)
     stroke_layer := sdl.CreateSurface(WINDOW_WIDTH, WINDOW_HEIGHT, .RGBA64_FLOAT )
     fmt.printfln("canvas color: {}", sdl.GetSurfaceColorspace(canvas_layer))
 
@@ -450,24 +455,27 @@ main :: proc() {
                     mu_mouse: microui.Mouse
                     mu_mouse = microui.Mouse.LEFT
                     microui.input_mouse_up(mu_context, i32(event.motion.x), i32(event.motion.y), mu_mouse)
+
+                    commit_stroke = true
+                    lastpos.x = -100000
+                    avg_count = 0
                 case .MOUSE_MOTION:
                     microui.input_mouse_move(mu_context, i32(event.motion.x), i32(event.motion.y))
                     mousepos = {event.motion.x, event.motion.y}
-                
-                case .PEN_MOTION:
-                    if event.pmotion.pen_state == {.DOWN} {
+            
+                    if event.motion.state == {.LEFT} {
                         // fmt.printfln("draw px {} : {}", event.motion.x, event.motion.y)
                         // draw_pixel(event.motion.x, event.motion.y, window, red)
-                        if (ui_window_rect.x < i32(event.pmotion.x) && i32(event.pmotion.x) < ui_window_rect.x + ui_window_rect.w &&
-                            ui_window_rect.y < i32(event.pmotion.y) && i32(event.pmotion.y) < ui_window_rect.y + ui_window_rect.h) {
+                        if (ui_window_rect.x < i32(event.motion.x) && i32(event.motion.x) < ui_window_rect.x + ui_window_rect.w &&
+                            ui_window_rect.y < i32(event.motion.y) && i32(event.motion.y) < ui_window_rect.y + ui_window_rect.h) {
 
                         }
                         else
                         {
                             destRect.h = BRUSH_H
                             destRect.w = BRUSH_W
-                            destRect.x = i32(event.pmotion.x) - BRUSH_W/2
-                            destRect.y = i32(event.pmotion.y) - BRUSH_H/2
+                            destRect.x = i32(event.motion.x) - BRUSH_W/2
+                            destRect.y = i32(event.motion.y) - BRUSH_H/2
                             
                             // if flow_pressure do sdl.SetSurfaceAlphaMod(brush, u8(slider_opacity * 255))
                             
@@ -475,18 +483,26 @@ main :: proc() {
 
                             // sdl.SetSurfaceBlendMode(canvas_layer, opacity_blend)
 
-                            curpos: [2]f32 = {event.pmotion.x, event.pmotion.y}
+                            curpos: [2]f32 = {event.motion.x, event.motion.y}
                             delta := curpos - lastpos
                             dist: f32 = math.sqrt(delta.x*delta.x + delta.y*delta.y)
-                            step: f32 = max(f32(BRUSH_H/12), 1)
+                            step: f32 = max(f32(BRUSH_H/64), 1)
                             dir := delta/dist
+
+                            pressure: f32 = currpress
+                            deltaPress := currpress - lastpress
+
+                            sdl.LockSurface(brush)
+                            sdl.LockSurface(stroke_layer)
 
                             if lastpos.x >= 0 {
                                 for t: f32; t < dist; t = t + step {
                                     pos: [2]f32 = lastpos + dir * t
                                     last_dab_time := sdl.GetTicksNS()
+
+                                    press_interp: f32 = lastpress + deltaPress * (t/dist)
                                     
-                                    if use_opacity do custom_blend(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
+                                    if use_opacity do custom_blend(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2), press_interp)
                                     // else do custom_blend_basic(brush, stroke_layer, int(pos.x) - int(BRUSH_W/2), int(pos.y) - int(BRUSH_H/2))
                                     else do sdl.BlitSurface(brush, nil, stroke_layer, &destRect)
                                     ticks: u64 = sdl.GetTicksNS() - last_dab_time
@@ -499,7 +515,7 @@ main :: proc() {
                             else {
                                 last_dab_time := sdl.GetTicksNS()
 
-                                if use_opacity do custom_blend(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
+                                if use_opacity do custom_blend(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2), currpress)
                                 // else do custom_blend_basic(brush, stroke_layer, int(curpos.x) - int(BRUSH_W/2), int(curpos.y) - int(BRUSH_H/2))
                                 else do sdl.BlitSurface(brush, nil, stroke_layer, &destRect)
 
@@ -510,8 +526,12 @@ main :: proc() {
                                 avg_dab_time = f64(brush_avg_sum)/f64(avg_count)
                             }
 
+                            sdl.UnlockSurface(brush)
+                            sdl.UnlockSurface(stroke_layer)
+
                             
                             lastpos = curpos
+                            lastpress = currpress
                             update_rect = destRect
 
                         }
@@ -528,6 +548,7 @@ main :: proc() {
                 case .PEN_AXIS:
                     if event.paxis.axis == .PRESSURE {
                         pressure_opacity = event.paxis.value
+                        currpress = event.paxis.value
                     }
                 case .PEN_UP:
                     commit_stroke = true
@@ -623,6 +644,7 @@ main :: proc() {
         if commit_stroke {
             
             sdl.BlitSurface(stroke_layer, nil, canvas_layer, nil)
+            // custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
 
             // custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
             sdl.ClearSurface(stroke_layer, 0, 0, 0, 0)
@@ -643,6 +665,7 @@ main :: proc() {
         sdl.RenderClear(renderer)
         sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
         sdl.RenderTexture(renderer, canvas_tex, nil, nil)
+        sdl.SetRenderDrawBlendMode(renderer, {.BLEND})
         sdl.UpdateTexture(stroke_tex, nil, stroke_layer.pixels, stroke_layer.pitch)
         sdl.RenderTexture(renderer, stroke_tex, nil, nil)
         if use_icc {
