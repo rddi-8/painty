@@ -665,7 +665,7 @@ main :: proc() {
         sdl.RenderClear(renderer)
         sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
         sdl.RenderTexture(renderer, canvas_tex, nil, nil)
-        sdl.SetRenderDrawBlendMode(renderer, {.BLEND})
+        // sdl.SetRenderDrawBlendMode(renderer, {.BLEND_PREMULTIPLIED})
         sdl.UpdateTexture(stroke_tex, nil, stroke_layer.pixels, stroke_layer.pitch)
         sdl.RenderTexture(renderer, stroke_tex, nil, nil)
         if use_icc {
