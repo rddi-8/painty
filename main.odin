@@ -18,8 +18,8 @@ SDL_Window: ^sdl.Window
 SDL_Renderer: ^sdl.Renderer
 SDL_Texture: ^sdl.Texture
 gDone: int
-WINDOW_WIDTH : c.int : 1600
-WINDOW_HEIGHT : c.int : 1200
+WINDOW_WIDTH : c.int : 2200
+WINDOW_HEIGHT : c.int : 1300
 last_ticks: u64
 brush_avg_sum: u64
 avg_count: u64
@@ -47,6 +47,9 @@ mousepos: [2]f32
 lastpress: f32
 currpress: f32
 
+update_window: struct {
+    x,y,w,h: int
+}
 
 use_icc: bool = false
 use_opacity: bool = false
@@ -271,16 +274,29 @@ custom_blend_basic_premult :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int
 print_tex_prop :: proc(tex: ^sdl.Texture, name: string) {
     props := sdl.GetTextureProperties(tex)
     color_space := sdl.GetNumberProperty(props, sdl.PROP_TEXTURE_COLORSPACE_NUMBER, -88)
+    access := sdl.GetNumberProperty(props, sdl.PROP_TEXTURE_ACCESS_NUMBER, -88)
     fmt.printfln("{} color_space: {}", name, sdl.Colorspace(color_space))
+    fmt.printfln("{} access: {}", name, sdl.TextureAccess(access))
 }
 
-update_texture :: proc(source: ^sdl.Surface, tex: ^sdl.Texture) {
-    tex_px: ^rawptr
-    tex_pitch: ^i32
-    sdl.LockTexture(tex, nil, tex_px, tex_pitch)
-    sdl.LockSurface(source)
-    assert(source.pitch == tex_pitch^)
-    mem.copy(tex_px^, source.pixels, int(source.pitch * source.h))
+update_texture :: proc(source: ^sdl.Surface, tex: ^sdl.Texture, x,y,w,h: int) {
+    if w == 0 || h == 0 do return
+    tex_px: rawptr
+    tex_pitch: i32
+    rect: sdl.Rect = {i32(x),i32(y),i32(w),i32(h)}
+    // fmt.println(rect)
+    // print_tex_prop(tex, "copy source")
+    if !sdl.LockTexture(tex, &rect , &tex_px, &tex_pitch) do print_err()
+    // fmt.printfln("tex: pitch {}", tex_pitch)
+    if !sdl.LockSurface(source) do print_err()
+    // fmt.printfln("src: {} tex {}", source.pitch, tex_pitch)
+    // assert(source.pitch == tex_pitch)
+
+    for i in 0..<h {
+
+        mem.copy_non_overlapping(rawptr(uintptr(tex_px) + uintptr(i)*uintptr(tex_pitch)), rawptr(uintptr(source.pixels) + uintptr(y*int(source.pitch) + x*8 + i*int(source.pitch))) , w*8)
+
+    }
     sdl.UnlockTexture(tex)
     sdl.UnlockSurface(source)
 }
@@ -596,6 +612,11 @@ main :: proc() {
                             lastpress = currpress
                             update_rect = destRect
 
+                            update_window.x = int(destRect.x)
+                            update_window.y = int(destRect.y)
+                            update_window.w = int(destRect.w)
+                            update_window.h = int(destRect.h)
+
                         }
                     }
                     if event.motion.state == {.RIGHT} {
@@ -725,12 +746,16 @@ main :: proc() {
         // sdl.UnlockTexture(canvas_tex)
         
         sdl.RenderClear(renderer)
-        sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
+        // sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
+        update_texture(canvas_layer, canvas_tex, update_window.x, update_window.y, update_window.w, update_window.h)
         sdl.RenderTexture(renderer, canvas_tex, nil, nil)
         // sdl.SetRenderDrawBlendMode(renderer, {.BLEND})
         // sdl.SetSurfaceColorspace(stroke_layer, .RGB_DEFAULT)
         custom_blend_basic_premult(stroke_layer, stroke_layer_premult, 0, 0)
-        sdl.UpdateTexture(stroke_tex, nil, stroke_layer_premult.pixels, stroke_layer_premult.pitch)
+        // sdl.UpdateTexture(stroke_tex, nil, stroke_layer_premult.pixels, stroke_layer_premult.pitch)
+        // update_texture(stroke_layer_premult, stroke_tex, update_window.x, update_window.y, update_window.w, update_window.h)
+        update_texture(stroke_layer_premult, stroke_tex, update_window.x, update_window.y, update_window.w, update_window.h)
+
         sdl.RenderTexture(renderer, stroke_tex, nil, nil)
         if use_icc {
             sdl.RenderClear(renderer)
@@ -742,6 +767,7 @@ main :: proc() {
             sdl.RenderTexture(renderer, surface_tex, nil, nil)
         }
         sdl.UpdateTexture(ui_tex, nil, ui_layer.pixels, ui_layer.pitch)
+        // update_texture(ui_layer, ui_tex)
         sdl.RenderTexture(renderer, ui_tex, nil, nil)
         
         
