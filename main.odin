@@ -195,6 +195,15 @@ f_to_c :: proc(color: [4]f32) -> [4]u8 {
     return u_col
 }
 
+f16_to_c :: proc(color: [4]f16) -> [4]u8 {
+    u_col: [4]u8
+    u_col.r = u8(color.r * 255)
+    u_col.g = u8(color.g * 255)
+    u_col.b = u8(color.b * 255)
+    u_col.a = u8(color.a * 255)
+    return u_col
+}
+
 srg_to_lin :: proc(color: [4]f16) -> [4]f16 {
     col_res: [4]f16
     col_res.r = math.pow(color.r, 2.2)
@@ -218,6 +227,46 @@ render_brush :: proc(type: BrushType, dest: ^sdl.Surface, size_x: int, size_y: i
         case .ROUND_AA:
             render_brush_round_AA(dest, size_x, size_y, color)
     }
+}
+
+render_brush_preview :: proc(dest: ^sdl.Surface, size_x: int, size_y: int) #no_bounds_check #no_type_assert {
+    dst_cv := ([^][4]u8)(dest.pixels)
+
+    // sdl.LockSurface(src)
+    // sdl.LockSurface(dest)
+    x := int(dest.w/2) - size_x/2
+    y := int(dest.h/2) - size_y/2
+    cxl,cxr,cyu,cyb: int // clipping vars
+    cxl = max(0, -x)
+    cyu = max(0, -y)
+    cxr = min(size_x, int(dest.w) - x)
+    cyb = min(size_y, int(dest.h) - y)
+    wcolor := [4]f16{1,1,1,1}
+    bcolor := [4]f16{0,0,0,1}
+
+    for ys in cyu..<cyb {
+        for xs in cxl..<cxr {
+            dst_c := wcolor
+            dst_c.a = 0
+            val := (xs - size_x/2)*(xs - size_x/2) + (ys - size_y/2)*(ys - size_y/2)
+            if val <= (size_x*size_x) / 4 {
+                dst_c.a = 0.5
+            }
+            if val <= ((size_x - 2)*(size_x - 2)) / 4 {
+                dst_c = bcolor
+                dst_c.a = 0.5
+            }
+            if val <= ((size_x - 4)*(size_x - 4)) / 4 {
+                dst_c.a = 0
+            }
+
+            dst_cv[map_xy(dest, xs + x, ys + y)] = f16_to_c(dst_c)
+
+        }
+    }
+
+    // sdl.UnlockSurface(src)
+    // sdl.UnlockSurface(dest)
 }
 
 render_brush_round :: proc(dest: ^sdl.Surface, size_x: int, size_y: int, color: [4]f16) #no_bounds_check #no_type_assert {
@@ -626,7 +675,7 @@ main :: proc() {
     // window := sdl.CreateWindow("SDL Appy", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
     window: ^sdl.Window
     renderer: ^sdl.Renderer
-    window = sdl.CreateWindow("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {})
+    window = sdl.CreateWindow("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
     
     rend_prop := sdl.CreateProperties()
     sdl.SetNumberProperty(rend_prop, sdl.PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB_LINEAR))
@@ -685,6 +734,7 @@ main :: proc() {
 
 
     brush := sdl.CreateSurface(BRUSH_W, BRUSH_H, .RGBA32)
+    brush_preview := sdl.CreateSurface(BRUSH_W, BRUSH_H, .RGBA32)
     if (brush == nil) {
         print_err()
     }
@@ -721,7 +771,7 @@ main :: proc() {
 
 
 
-        make_brush :: proc(brush_p: ^^sdl.Surface) {
+        make_brush :: proc(brush_p: ^^sdl.Surface, brush_preview_p: ^^sdl.Surface) {
             // fmt.printfln("redraw brush {} {}", BRUSH_H, BRUSH_W)
 
 
@@ -730,14 +780,21 @@ main :: proc() {
             if brush_p^ == nil do print_err()
             brush := brush_p^
             if !sdl.ClearSurface(brush, 0, 0, 0, 0) do print_err()
+
+            sdl.DestroySurface(brush_preview_p^)
+            brush_preview_p^ = sdl.CreateSurface(BRUSH_W, BRUSH_H, .RGBA32)
+            if brush_preview_p^ == nil do print_err()
+            brush_preview := brush_preview_p^
+            if !sdl.ClearSurface(brush_preview, 0, 0, 0, 0) do print_err()
         }
 
         if redraw_brush {
             BRUSH_H = i32(slider_size)
             BRUSH_W = i32(slider_size)
             // stopwatch_reset()
-            make_brush(&brush)
+            make_brush(&brush, &brush_preview)
             render_brush(current_brush, brush, int(BRUSH_W), int(BRUSH_H), get_slider_color())
+            render_brush_preview(brush_preview, int(BRUSH_W), int(BRUSH_H))
             // stopwatch_stop("brush redraw")
             redraw_brush = false
         }
@@ -803,9 +860,10 @@ main :: proc() {
                     if event.motion.state == {.LEFT} {
                         if (ui_window_rect.x < i32(event.motion.x) && i32(event.motion.x) < ui_window_rect.x + ui_window_rect.w &&
                             ui_window_rect.y < i32(event.motion.y) && i32(event.motion.y) < ui_window_rect.y + ui_window_rect.h) {
-
+                                if !sdl.ShowCursor() do print_err()
                         }
                         else {
+                            if !sdl.HideCursor() do print_err()
                             destRect.h = BRUSH_H
                             destRect.w = BRUSH_W
                             destRect.x = i32(event.motion.x) - BRUSH_W/2
@@ -966,6 +1024,11 @@ main :: proc() {
         microui.end(mu_context)     
 
         sdl.ClearSurface(ui_layer, 0, 0, 0, 0)
+
+        brushRect: sdl.Rect = {x = i32(mousepos.x) - brush_preview.w/2, y = i32(mousepos.y) - brush_preview.h/2, w = brush_preview.w, h = brush_preview.h}
+        // fmt.print(brushRect)
+        sdl.BlitSurface(brush_preview, nil, ui_layer, &brushRect)
+
         mu_command: ^microui.Command
         for microui.next_command(mu_context, &mu_command) {
             #partial switch cmd in mu_command.variant {
@@ -978,6 +1041,7 @@ main :: proc() {
                     
             }
         }
+
         ui_window_rect = { w = ui_window.rect.w, h = ui_window.rect.h, x = ui_window.rect.x, y = ui_window.rect.y}
         if (save_img) {
             sdli.SavePNG(canvas_layer, "img.png")
@@ -997,13 +1061,15 @@ main :: proc() {
         canvas_tex_pixels: rawptr
         ctex_pitch: c.int
 
+        screenRect: sdl.FRect = {x = 0, y = 0, w = f32(WINDOW_WIDTH), h = f32(WINDOW_HEIGHT)}
         sdl.RenderClear(renderer)
         clip_region(&update_window, {x = 0, y = 0, w = int(WINDOW_WIDTH), h = int(WINDOW_HEIGHT)})
         update_texture(canvas_layer, canvas_tex, update_window)
-        sdl.RenderTexture(renderer, canvas_tex, nil, nil)
+        sdl.RenderTexture(renderer, canvas_tex, nil, &screenRect)
         update_texture(stroke_layer, stroke_tex, update_window)
+        sdl.RenderTexture(renderer, stroke_tex, nil, &screenRect)
 
-        sdl.RenderTexture(renderer, stroke_tex, nil, nil)
+
         if use_icc {
             sdl.RenderClear(renderer)
             sdl.SetSurfaceColorspace(surface, .RGB_DEFAULT)
@@ -1014,7 +1080,7 @@ main :: proc() {
             sdl.RenderTexture(renderer, surface_tex, nil, nil)
         }
         sdl.UpdateTexture(ui_tex, nil, ui_layer.pixels, ui_layer.pitch)
-        sdl.RenderTexture(renderer, ui_tex, nil, nil)
+        sdl.RenderTexture(renderer, ui_tex, nil, &screenRect)
         
         
         sdl.RenderPresent(renderer)
