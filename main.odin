@@ -30,8 +30,8 @@ SDL_Window: ^sdl.Window
 SDL_Renderer: ^sdl.Renderer
 SDL_Texture: ^sdl.Texture
 gDone: int
-WINDOW_WIDTH : c.int = 2200
-WINDOW_HEIGHT : c.int = 1300
+WINDOW_WIDTH : c.int = 1600
+WINDOW_HEIGHT : c.int = 900
 last_ticks: u64
 brush_avg_sum: u64
 avg_count: u64
@@ -489,7 +489,7 @@ brush_blend_soft :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int, 
 
 
             // fin_c.rgb = (src_c.rgb * src_c.a)
-            src_c.a = f16(opacity)*src_c.a*0.5
+            src_c.a = f16(opacity)*src_c.a*0.2
             fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
 
             dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
@@ -675,7 +675,7 @@ main :: proc() {
     // window := sdl.CreateWindow("SDL Appy", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
     window: ^sdl.Window
     renderer: ^sdl.Renderer
-    window = sdl.CreateWindow("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {.RESIZABLE})
+    window = sdl.CreateWindow("Painty", WINDOW_WIDTH, WINDOW_HEIGHT, {})
     
     rend_prop := sdl.CreateProperties()
     sdl.SetNumberProperty(rend_prop, sdl.PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER, i64(sdl.Colorspace.SRGB_LINEAR))
@@ -780,7 +780,7 @@ main :: proc() {
             if brush_p^ == nil do print_err()
             brush := brush_p^
             if !sdl.ClearSurface(brush, 0, 0, 0, 0) do print_err()
-
+            
             sdl.DestroySurface(brush_preview_p^)
             brush_preview_p^ = sdl.CreateSurface(BRUSH_W, BRUSH_H, .RGBA32)
             if brush_preview_p^ == nil do print_err()
@@ -1053,7 +1053,6 @@ main :: proc() {
         ui_window_rect = { w = ui_window.rect.w, h = ui_window.rect.h, x = ui_window.rect.x, y = ui_window.rect.y}
         if (save_img) {
             sdli.SavePNG(canvas_layer, "img.png")
-            sdli.SavePNG(surface, "img_bg.png")
             save_img = false
         }
 
