@@ -18,7 +18,8 @@ import "lcms"
 BrushType :: enum {
     ROUND,
     SOFT,
-    SQUARE
+    SQUARE,
+    ROUND_AA
 }
 
 current_brush : BrushType
@@ -213,6 +214,8 @@ render_brush :: proc(type: BrushType, dest: ^sdl.Surface, size_x: int, size_y: i
             render_brush_soft(dest, size_x, size_y, color)
         case .SQUARE:
             render_brush_square(dest, size_x, size_y, color)
+        case .ROUND_AA:
+            render_brush_round_AA(dest, size_x, size_y, color)
     }
 }
 
@@ -238,6 +241,61 @@ render_brush_round :: proc(dest: ^sdl.Surface, size_x: int, size_y: int, color: 
             }
             else {
                 dst_c.a = 0
+            }
+
+            dst_cv[map_xy(dest, xs + x, ys + y)] = dst_c
+
+        }
+    }
+
+    // sdl.UnlockSurface(src)
+    // sdl.UnlockSurface(dest)
+}
+
+render_brush_round_AA :: proc(dest: ^sdl.Surface, size_x: int, size_y: int, color: [4]f16) #no_bounds_check #no_type_assert {
+    dst_cv := ([^][4]f16)(dest.pixels)
+
+    // sdl.LockSurface(src)
+    // sdl.LockSurface(dest)
+    x := int(dest.w/2) - size_x/2
+    y := int(dest.h/2) - size_y/2
+    cxl,cxr,cyu,cyb: int // clipping vars
+    cxl = max(0, -x)
+    cyu = max(0, -y)
+    cxr = min(size_x, int(dest.w) - x)
+    cyb = min(size_y, int(dest.h) - y)
+    bcolor := srg_to_lin(color)
+
+    size: [2]f32 = {f32(size_x), f32(size_y)}
+
+    edge_size: f16 = min(4 / f16(size_x), 0.5)
+    fmt.println(edge_size)
+
+    for ys in cyu..<cyb {
+        for xs in cxl..<cxr {
+            dst_c := bcolor
+            if size_x > 12 {
+                dst_c.a = f16(math.sqrt(f32((xs - size_x/2)*(xs - size_x/2) + (ys - size_y/2)*(ys - size_y/2))) / f32(size_x / 2))
+                // dst_c.a = clamp(1 - dst_c.a, 0, 1)
+                dst_c.a = math.smoothstep(f16(1.0), 1 - edge_size, dst_c.a)
+                // dst_c.a = math.pow(dst_c.a, 2.2)
+            }
+            else {
+                pos: [2]f32 = {f32(xs), f32(ys)}
+                samples:  = [?][2]f32{
+                    pos + {0.5, 0},
+                    pos + {0, 0.5},
+                    pos + {-0.5, 0},
+                    pos + {0, -0.5}
+                }
+                total: f32 = 0
+                for sample in samples {
+                    a := math.sqrt( (sample.x - size.x/2)*(sample.x - size.x/2) + (sample.y - size.y/2)*(sample.y - size.y/2)) / (size.x / 2)
+                    a = math.smoothstep(f32(1), f32(1 - edge_size), a)
+                    total += a
+                }
+
+                dst_c.a = f16(total / f32(len(samples)))
             }
 
             dst_cv[map_xy(dest, xs + x, ys + y)] = dst_c
@@ -293,9 +351,9 @@ render_brush_soft :: proc(dest: ^sdl.Surface, size_x: int, size_y: int, color: [
     for ys in cyu..<cyb {
         for xs in cxl..<cxr {
             dst_c := bcolor
-            dst_c.a = f16((xs - size_x/2)*(xs - size_x/2) + (ys - size_y/2)*(ys - size_y/2)) / f16(size_x * size_y / 4)
-            dst_c.a = clamp(1 - dst_c.a, 0, 1)
-            // dst_c.a = math.pow(dst_c.a, 2.2)
+            dst_c.a = f16(f32((xs - size_x/2)*(xs - size_x/2) + (ys - size_y/2)*(ys - size_y/2)) / f32(size_x * size_x / 4))
+            // dst_c.a = clamp(1 - dst_c.a, 0, 1)
+            dst_c.a = math.smoothstep(f16(1.0), 0, dst_c.a)
 
             dst_cv[map_xy(dest, xs + x, ys + y)] = dst_c
 
@@ -372,27 +430,18 @@ brush_blend_soft :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int, 
 
     for ys in cyu..<cyb {
         for xs in cxl..<cxr {
-            // if xs + x < 0 || ys + y < 0 do continue
-            // if xs + x + 1 > int(dest.w) do continue
-            // if ys + y + 1 > int(dest.h) do continue
             src_c := src_cv[map_xy(src, xs, ys)]
             dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
             // fin_c: [4]f16
 
             fin_c := src_c
-            // ccc := src_c.r * (f16(xs) / f16(src.w))
-            // fin_c.r = ccc
-            // fin_c.g = ccc
-            // fin_c.b = ccc
+
 
 
             // fin_c.rgb = (src_c.rgb * src_c.a)
             src_c.a = f16(opacity)*src_c.a*0.5
             fin_c.a = src_c.a + (dst_c.a * (1 - src_c.a))
-            // fin_c.a = clamp(fin_c.a, 0.0, 1.0)
 
-            // fin_c.a = math.max(f16(opacity)*src_c.a, dst_c.a)
-            // fin_c.a = f16(slider_opacity)
             dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
 
         }
@@ -418,9 +467,7 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
 
     for ys in 0..<int(src.h) {
         for xs in 0..<int(src.w) {
-            // if xs + x < 0 || ys + y < 0 do continue
-            // if xs + x + 1 > int(dest.w) do continue
-            // if ys + y + 1 > int(dest.h) do continue
+
             src_c := src_cv[map_xy(src, xs, ys)]
             dst_c := dst_cv[map_xy(dest, xs + x, ys + y)]
             fin_c: [4]f16
@@ -433,9 +480,6 @@ custom_blend_basic :: proc(src: ^sdl.Surface, dest: ^sdl.Surface, x: int, y: int
             fin_c.a = src_c.a + dst_c.a * (1 - src_c.a)
             
 
-            // fin_c.a = 1
-            // fin_c.a = math.max(opacity*src_c.a, dst_c.a)
-            // fin_c.a = f16(slider_opacity)
             dst_cv[map_xy(dest, xs + x, ys + y)] = fin_c
 
         }
@@ -640,27 +684,6 @@ main :: proc() {
     fmt.printfln("MUST_LOCK brush {}", sdl.MUSTLOCK(brush))
     fmt.printfln("MUST_LOCK window {}", sdl.MUSTLOCK(surface))
     
-
-    // brushFmt := sdl.GetPixelFormatDetails(brush.format)
-    // brushCol := sdl.MapRGBA(brushFmt, nil, 100, 100, 100, 100)
-    // brushBg := sdl.MapRGBA(brushFmt, nil, 100, 100, 100, 0)
-
-    // if(!sdl.LockSurface(brush)) do fmt.printfln("Error: {}", sdl.GetError())
-    // brushCanvas: [^]sdl.Uint32 = ([^]sdl.Uint32)(brush.pixels)
-    // for y in 0..<BRUSH_H {
-    //     for x in 0..<BRUSH_W {
-    //         if ( ((x - BRUSH_W/2)*(x - BRUSH_W/2) + (y - BRUSH_H/2)*(y - BRUSH_H/2)) <= (BRUSH_H/2)*(BRUSH_W/2)) {
-    //             pixelOffset := brush.pitch / 4 * y + x
-    //             brushCanvas[pixelOffset] = brushCol
-    //         }
-    //         else {
-    //             pixelOffset := brush.pitch / 4 * y + x
-    //             brushCanvas[pixelOffset] = brushBg
-    //         }
-    //     }
-    // }
-    // sdl.UnlockSurface(brush)
-
     quit: bool = false;
 
     draw_pixel :: proc(x: f32, y: f32, window: ^sdl.Window, color: sdl.Uint32) {
@@ -757,8 +780,6 @@ main :: proc() {
                     mousepos = {event.motion.x, event.motion.y}
             
                     if event.motion.state == {.LEFT} {
-                        // fmt.printfln("draw px {} : {}", event.motion.x, event.motion.y)
-                        // draw_pixel(event.motion.x, event.motion.y, window, red)
                         if (ui_window_rect.x < i32(event.motion.x) && i32(event.motion.x) < ui_window_rect.x + ui_window_rect.w &&
                             ui_window_rect.y < i32(event.motion.y) && i32(event.motion.y) < ui_window_rect.y + ui_window_rect.h) {
 
@@ -774,12 +795,6 @@ main :: proc() {
                             update_window.w = int(destRect.w)
                             update_window.h = int(destRect.h)
                                 
-                            // if flow_pressure do sdl.SetSurfaceAlphaMod(brush, u8(slider_opacity * 255))
-                            
-                            // sdl.SetSurfaceBlendMode(brush, opacity_blend)
-
-                            // sdl.SetSurfaceBlendMode(canvas_layer, opacity_blend)
-
                             curpos: [2]f32 = {event.motion.x, event.motion.y}
                             delta := curpos - lastpos
                             dist: f32 = math.sqrt(delta.x*delta.x + delta.y*delta.y)
@@ -792,12 +807,8 @@ main :: proc() {
                             size_x: int = max(1, int(f32(slider_size) * pressure))
                             size_y: int = max(1, int(f32(slider_size) * pressure))
                             if use_size_press {
-                                // fmt.printfln("size {} {}", destRect.w, destRect.h)
                                 BRUSH_W = i32(f32(slider_size) * pressure)
                                 BRUSH_H = i32(f32(slider_size) * pressure)
-                                // make_brush(&brush)
-                                // fmt.printfln("press: {}", pressure)
-                                // sdl.ClearSurface(brush, 0, 0, 0, 0)
                                 render_brush(current_brush, brush, size_x, size_y, get_slider_color() )
                             }
 
@@ -918,40 +929,20 @@ main :: proc() {
         }
 
         microui.layout_row(mu_context, {100,100,100})
-        res_round := microui.button(mu_context, "ROUND")
-        res_soft := microui.button(mu_context, "SOFT")
-        res_sqr := microui.button(mu_context, "SQUARE")
 
-        if (.SUBMIT in res_round) {
-            current_brush = .ROUND
-            redraw_brush = true
-        }
-        else if (.SUBMIT in res_soft) {
-            current_brush = .SOFT
-            redraw_brush = true
-        }
-        else if (.SUBMIT in res_sqr) {
-            current_brush = .SQUARE
-            redraw_brush = true
+        for brush_type in BrushType {
+            b_name, _ := fmt.enum_value_to_string(brush_type)
+            res_b_select := microui.button(mu_context, b_name)
+            if (.SUBMIT in res_b_select) {
+                current_brush = brush_type
+                redraw_brush = true
+            }
         }
 
         ui_window := microui.get_current_container(mu_context)
         microui.end_window(mu_context)
 
-        
-
-        // microui.begin_window(mu_context, "Hmmm", {10, 10, 200, 400})
-        // res1 := microui.button(mu_context, "Button 1")
-        // if (.SUBMIT in res1) do fmt.println("button 1 pressy")
-        // res2 := microui.button(mu_context, "Button 2")
-        // if (.SUBMIT in res2) do fmt.println("button 2 pressy")
-        // microui.end_window(mu_context)
-
-        microui.end(mu_context)
-
-        
-        // if(!sdl.LockSurface(brush)) do fmt.printfln("Error: {}", sdl.GetError())
-        
+        microui.end(mu_context)     
 
         sdl.ClearSurface(ui_layer, 0, 0, 0, 0)
         mu_command: ^microui.Command
@@ -966,27 +957,17 @@ main :: proc() {
                     
             }
         }
-        if true {
-            // sdl.ClearSurface(surface, 0, 0, 0, 1)
-            // sdl.BlitSurface(canvas_layer, nil, surface, nil)
-        }
-        else {
-        //    sdl.BlitSurface(canvas_layer, &update_rect, surface, &update_rect)
-        }
         ui_window_rect = { w = ui_window.rect.w, h = ui_window.rect.h, x = ui_window.rect.x, y = ui_window.rect.y}
         if (save_img) {
             sdli.SavePNG(canvas_layer, "img.png")
             sdli.SavePNG(surface, "img_bg.png")
             save_img = false
         }
-        // sdl.BlitSurface(ui_layer, &ui_window_rect, surface, &ui_window_rect)
 
         if commit_stroke {
             
-            // sdl.BlitSurface(stroke_layer, nil, canvas_layer, nil)
             custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
 
-            // custom_blend_basic(stroke_layer, canvas_layer, 0, 0)
             sdl.ClearSurface(stroke_layer, 0, 0, 0, 0)
             commit_stroke = false
         }
@@ -994,27 +975,11 @@ main :: proc() {
         
         canvas_tex_pixels: rawptr
         ctex_pitch: c.int
-        // if !sdl.LockTexture(canvas_tex, nil, &canvas_tex_pixels, &ctex_pitch) do print_err()
-        // pixls: [^][4]f16 = ([^][4]f16)(canvas_tex_pixels)
-        // clor: [4]f16 = { 1, 1, 1, 1}
-        // for i in 0..<100 {
-        //     pixls[i] = clor
-        // }
-        // sdl.UnlockTexture(canvas_tex)
-        
-        // stopwatch_reset()
 
         sdl.RenderClear(renderer)
         clip_region(&update_window, {x = 0, y = 0, w = int(WINDOW_WIDTH), h = int(WINDOW_HEIGHT)})
-        // sdl.UpdateTexture(canvas_tex, nil, canvas_layer.pixels, canvas_layer.pitch)
         update_texture(canvas_layer, canvas_tex, update_window)
         sdl.RenderTexture(renderer, canvas_tex, nil, nil)
-        // sdl.SetRenderDrawBlendMode(renderer, {.BLEND})
-        // sdl.SetSurfaceColorspace(stroke_layer, .RGB_DEFAULT)
-        // custom_blend_basic_premult(stroke_layer, stroke_layer_premult, 0, 0)
-        // sdl.BlitSurface(stroke_layer, nil, stroke_layer_premult, nil)
-        // sdl.UpdateTexture(stroke_tex, nil, stroke_layer_premult.pixels, stroke_layer_premult.pitch)
-        // update_texture(stroke_layer_premult, stroke_tex, update_window.x, update_window.y, update_window.w, update_window.h)
         update_texture(stroke_layer, stroke_tex, update_window)
 
         sdl.RenderTexture(renderer, stroke_tex, nil, nil)
@@ -1028,26 +993,17 @@ main :: proc() {
             sdl.RenderTexture(renderer, surface_tex, nil, nil)
         }
         sdl.UpdateTexture(ui_tex, nil, ui_layer.pixels, ui_layer.pitch)
-        // update_texture(ui_layer, ui_tex)
         sdl.RenderTexture(renderer, ui_tex, nil, nil)
         
         
         sdl.RenderPresent(renderer)
         
         if use_icc {
-            // surface_copy := sdl.DuplicateSurface(surface)
-            // sdl.LockSurface(surface)
+
             lcms.DoTransform(h_transform, surface.pixels, surface.pixels, u32(surface.h * surface.w))
-            // sdl.UnlockSurface(surface)
-            // sdl.SetSurfaceColorspace(surface, .RGB_DEFAULT)
-            // sdl.BlitSurface(surface_copy, nil, surface, nil)
-            // sdl.DestroySurface(surface_copy)
         
         }
 
-        // sdl.UpdateWindowSurface(window)
-
-        // stopwatch_stop("render")
     }
     
     sdl.DestroyWindow(window)
