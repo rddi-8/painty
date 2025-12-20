@@ -856,14 +856,22 @@ main :: proc() {
                 case .MOUSE_MOTION:
                     microui.input_mouse_move(mu_context, i32(event.motion.x), i32(event.motion.y))
                     mousepos = {event.motion.x, event.motion.y}
-            
-                    if event.motion.state == {.LEFT} {
-                        if (ui_window_rect.x < i32(event.motion.x) && i32(event.motion.x) < ui_window_rect.x + ui_window_rect.w &&
+                    
+                    if (ui_window_rect.x < i32(event.motion.x) && i32(event.motion.x) < ui_window_rect.x + ui_window_rect.w &&
                             ui_window_rect.y < i32(event.motion.y) && i32(event.motion.y) < ui_window_rect.y + ui_window_rect.h) {
                                 if !sdl.ShowCursor() do print_err()
                         }
                         else {
                             if !sdl.HideCursor() do print_err()
+                        }
+
+                    if event.motion.state == {.LEFT} {
+                        if (ui_window_rect.x < i32(event.motion.x) && i32(event.motion.x) < ui_window_rect.x + ui_window_rect.w &&
+                            ui_window_rect.y < i32(event.motion.y) && i32(event.motion.y) < ui_window_rect.y + ui_window_rect.h) {
+                                // if !sdl.ShowCursor() do print_err()
+                        }
+                        else {
+                            // if !sdl.HideCursor() do print_err()
                             destRect.h = BRUSH_H
                             destRect.w = BRUSH_W
                             destRect.x = i32(event.motion.x) - BRUSH_W/2
