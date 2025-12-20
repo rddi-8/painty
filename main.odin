@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:strconv"
 import "core:os"
 import "core:mem"
@@ -558,7 +559,13 @@ update_texture :: proc(source: ^sdl.Surface, tex: ^sdl.Texture, region: region) 
     sdl.UnlockSurface(source)
 }
 
+tracking_alloc: mem.Tracking_Allocator
+
 main :: proc() {
+
+    mem.tracking_allocator_init(&tracking_alloc, context.allocator)
+    defer mem.tracking_allocator_destroy(&tracking_alloc)
+    context.allocator = mem.tracking_allocator(&tracking_alloc)
 
     if len(os.args) == 3 {
         user_width, ok1 := strconv.parse_int(os.args[1])
@@ -752,6 +759,20 @@ main :: proc() {
                         // slider_alpha = f32(a)
                         redraw_brush = true
                     }
+                    #partial switch event.key.scancode {
+                        case .RIGHTBRACKET:
+                            slider_size *= 2
+                            redraw_brush = true
+                        case .LEFTBRACKET:
+                            slider_size = max(1, slider_size / 2)
+                            redraw_brush = true
+                        case .KP_9:
+                            slider_opacity = 1.0
+                        case .KP_8:
+                            slider_opacity = 0.85
+                        case .KP_7:
+                            slider_opacity = 0.5
+                    }
                 case .MOUSE_BUTTON_DOWN:
                     mu_mouse: microui.Mouse
                     mu_mouse = microui.Mouse.LEFT
@@ -889,8 +910,8 @@ main :: proc() {
         res := microui.button(mu_context, "SAVE")
         res_toggle := microui.checkbox(mu_context, "use ICC", &use_icc)
         if (.SUBMIT in res) do save_img = true
-        microui.label(mu_context, fmt.aprintf("time: %.2f ms", f32(frame_time)/1000000.0))
-        microui.label(mu_context, fmt.aprintf("dab: %.2f µs", avg_dab_time/1000.0))
+        microui.label(mu_context, fmt.aprintf("time: %.2f ms", f32(frame_time)/1000000.0, allocator = context.temp_allocator))
+        microui.label(mu_context, fmt.aprintf("dab: %.2f µs", avg_dab_time/1000.0, allocator = context.temp_allocator))
         microui.layout_row(mu_context, {360}, 32)
         n_rect := microui.layout_next(mu_context)
         microui.draw_rect(mu_context, n_rect, {u8(slider_red), u8(slider_green), u8(slider_blue), 255})
@@ -1003,9 +1024,17 @@ main :: proc() {
             lcms.DoTransform(h_transform, surface.pixels, surface.pixels, u32(surface.h * surface.w))
         
         }
+        mem.free_all(context.temp_allocator)
+        // fmt.printfln("size: {}", tracking_alloc.current_memory_allocated)
 
     }
     
     sdl.DestroyWindow(window)
     sdl.Quit()
+
+    mem.free(mu_context)
+
+    for _, leak in tracking_alloc.allocation_map {
+        fmt.printf("%v leaked %m\n", leak.location, leak.size)
+    }
 }
