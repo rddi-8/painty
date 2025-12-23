@@ -1,5 +1,6 @@
 package whatde
 
+import "core:log"
 import sdl "vendor:sdl3"
 import "core:fmt"
 
@@ -14,26 +15,27 @@ print_err :: proc() {
 }
 
 main :: proc() {
-    if !sdl.Init({.VIDEO}) do print_err()
-    fmt.println("hell")
-    if !sdl.CreateWindowAndRenderer("hmmm", WIDTH, HEIGHT, {}, &window, &renderer ) do print_err()
+    // context.logger = log.create_console_logger()
+
+    // ok := sdl.Init({.VIDEO}); assert(ok)
+    // window := sdl.CreateWindow("hmmm", WIDTH, HEIGHT, {})
+
+    // gpu := sdl.CreateGPUDevice({.SPIRV}, true, nil); assert(gpu != nil)
+    // assert(1 == 3)
 
 
-    main_loop: for {
-        ev: sdl.Event
-        for sdl.PollEvent(&ev) {
-            #partial switch ev.type {
-                case .QUIT:
-                    break main_loop
-            }
-        }
+    // main_loop: for {
+    //     ev: sdl.Event
+    //     for sdl.PollEvent(&ev) {
+    //         #partial switch ev.type {
+    //             case .QUIT:
+    //                 break main_loop
+    //         }
+    //     }
 
-        sdl.SetRenderDrawColor(renderer, 220, 100, 100, 255)
-        sdl.RenderClear(renderer)
+        
+    // }
 
-        // sdl.FlushRenderer(renderer)
-        sdl.RenderPresent(renderer)
-    }
-
-    sdl.Quit()
+    // sdl.Quit()
+    test1()
 }
