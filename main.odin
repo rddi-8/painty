@@ -212,6 +212,14 @@ srg_to_lin :: proc(color: [4]f16) -> [4]f16 {
     return col_res
 }
 
+lin_to_srgb :: proc(color: [4]f16) -> [4]f32 {
+    col_res: [4]f32
+    col_res.r = math.pow(f32(color.r), 1/2.2)
+    col_res.g = math.pow(f32(color.g), 1/2.2)
+    col_res.b = math.pow(f32(color.b), 1/2.2)
+    return col_res
+}
+
 render_brush :: proc(type: BrushType, dest: ^sdl.Surface, size_x: int, size_y: int, color: [4]f16) {
     // fmt.printfln("size: {} {}", size_x, size_y)
     // fmt.print(color)
@@ -808,11 +816,13 @@ main :: proc() {
                 case .KEY_DOWN:
                     if event.key.scancode == .ESCAPE do break main_loop
                     if event.key.scancode == .LALT {
-                        r, g, b, a: u8
-                        pick_col := sdl.ReadSurfacePixel(canvas_layer, i32(mousepos.x), i32(mousepos.y), &r, &g, &b, &a)
-                        slider_red = f32(r)
-                        slider_green = f32(g)
-                        slider_blue = f32(b)
+                        pixels: [^][4]f16 = ([^][4]f16)(canvas_layer.pixels)
+                        clamp_x := clamp(int(mousepos.x), 0, int(canvas_layer.w) - 1)
+                        clamp_y := clamp(int(mousepos.y), 0, int(canvas_layer.h) - 1)
+                        pick_col := lin_to_srgb(pixels[map_xy(canvas_layer, clamp_x, clamp_y)])
+                        slider_red = f32(pick_col.r * 255.0)
+                        slider_green = f32(pick_col.g * 255.0)
+                        slider_blue = f32(pick_col.b * 255.0)
                         // slider_alpha = f32(a)
                         redraw_brush = true
                     }
@@ -837,12 +847,13 @@ main :: proc() {
                     r,g,b,a :sdl.Uint8
 
                     if event.button.button == 3 {
-                        r, g, b, a: u8
-                        pick_col := sdl.ReadSurfacePixel(canvas_layer, i32(event.motion.x), i32(event.motion.y), &r, &g, &b, &a)
-                        slider_red = f32(r)
-                        slider_green = f32(g)
-                        slider_blue = f32(b)
-                        // slider_alpha = f32(a)
+                        pixels: [^][4]f16 = ([^][4]f16)(canvas_layer.pixels)
+                        clamp_x := clamp(int(event.motion.x), 0, int(canvas_layer.w) - 1)
+                        clamp_y := clamp(int(event.motion.y), 0, int(canvas_layer.h) - 1)
+                        pick_col := lin_to_srgb(pixels[map_xy(canvas_layer, clamp_x, clamp_y)])
+                        slider_red = f32(pick_col.r * 255.0)
+                        slider_green = f32(pick_col.g * 255.0)
+                        slider_blue = f32(pick_col.b * 255.0)
                         redraw_brush = true
                     }
                 case .MOUSE_BUTTON_UP:
