@@ -11,7 +11,9 @@ import "core:math"
 import "core:math/linalg"
 import "shadercross"
 
-//general types
+VERTEX_BUFFER_SIZE : u32 :      8 * mem.Megabyte
+TRANSFER_BUFFER_SIZE : u32 :    8 * mem.Megabyte
+
 SizeU32 :: struct {
     w, h: u32
 }
@@ -26,6 +28,7 @@ Vertex_Data :: struct {
 
 Render_Info :: struct {
     texture: ^sdl.GPUTexture,
+    texture2: ^sdl.GPUTexture,
     sampler: ^sdl.GPUSampler,
 }
 
@@ -67,6 +70,7 @@ main :: proc() {
     window := sdl.CreateWindow("hmmm", WIDTH, HEIGHT, {.RESIZABLE}); assert(window != nil)
     gpu := sdl.CreateGPUDevice({.SPIRV}, true, nil); assert(gpu != nil)
     ok = sdl.ClaimWindowForGPUDevice(gpu, window); assert(ok)
+    ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .VSYNC); assert(ok)
 
     ok = shadercross.Init(); assert(ok)
     formats := shadercross.GetHLSLShaderFormats()
@@ -82,31 +86,9 @@ main :: proc() {
 
     }
 
-    vert_metadata := shadercross.ReflectGraphicsSPIRV(raw_data(vert_shader_spirv), len(vert_shader_spirv), {})
-    vert_shader := shadercross.CompileGraphicsShaderFromSPIRV(
-        gpu,
-        {
-            bytecode_size = len(vert_shader_spirv),
-            bytecote = raw_data(vert_shader_spirv),
-            entrypoint = "main",
-            shader_stage = .SDL_SHADERCROSS_SHADERSTAGE_VERTEX,
-        },
-        vert_metadata.resource_info,
-        {}
-    )
+    vert_shader := create_shader(gpu, vert_shader_spirv, .VERTEX)
 
-    frag_metadata := shadercross.ReflectGraphicsSPIRV(raw_data(frag_shader_spirv), len(frag_shader_spirv), {})
-    frag_shader := shadercross.CompileGraphicsShaderFromSPIRV(
-        gpu,
-        {
-            bytecode_size = len(frag_shader_spirv),
-            bytecote = raw_data(frag_shader_spirv),
-            entrypoint = "main",
-            shader_stage = .SDL_SHADERCROSS_SHADERSTAGE_FRAGMENT,
-        },
-        frag_metadata.resource_info,
-        {}
-    )
+    frag_shader := create_shader(gpu, frag_shader_spirv, .FRAGMENT)
 
     vertices_size := 6 * 10 * size_of(Vertex_Data)
 
@@ -114,14 +96,14 @@ main :: proc() {
         gpu,
         {
             usage = {.VERTEX},
-            size = u32(vertices_size),
+            size = VERTEX_BUFFER_SIZE,
         }
     )
 
 
     transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {
         usage = .UPLOAD,
-        size = u32(vertices_size)
+        size = TRANSFER_BUFFER_SIZE
     })
 
     vertex_attrs := []sdl.GPUVertexAttribute {
@@ -137,22 +119,6 @@ main :: proc() {
         }
     }
 
-    img_cpul := image.Load("img.jpg")
-    img_cpu := sdl.ConvertSurface(img_cpul, .RGBA32)
-
-    tex := sdl.CreateGPUTexture(
-        gpu,
-        {
-            format = .R8G8B8A8_UNORM,
-            height = u32(img_cpu.h),
-            width = u32(img_cpu.w),
-            layer_count_or_depth = 1,
-            num_levels = 1,
-            type = .D2,
-            usage = {.SAMPLER}
-        }
-    )
-
     sampler := sdl.CreateGPUSampler(
         gpu,
         {
@@ -160,41 +126,17 @@ main :: proc() {
             min_filter = .LINEAR,
             address_mode_u = .REPEAT,
             address_mode_v = .REPEAT,
-            mipmap_mode = .LINEAR
-        }
-    )
-    tex_size_bytes := sdl.CalculateGPUTextureFormatSize(.R8G8B8A8_UNORM, u32(img_cpu.w), u32(img_cpu.h), 1)
-
-    tex_transfer_buffer := sdl.CreateGPUTransferBuffer(
-        gpu,
-        {
-            usage = .UPLOAD,
-            size = tex_size_bytes,
+            mipmap_mode = .LINEAR,
         }
     )
 
-    tex_transfer_ptr := sdl.MapGPUTransferBuffer(gpu, tex_transfer_buffer, false)
-    mem.copy_non_overlapping(tex_transfer_ptr, img_cpu.pixels, int(img_cpu.w * img_cpu.h * 4))
-    sdl.UnmapGPUTransferBuffer(gpu, tex_transfer_buffer)
+    // load_texture(gpu, "sdsd.jpp")
 
-    tex_cmd := sdl.AcquireGPUCommandBuffer(gpu)
-    tex_copy := sdl.BeginGPUCopyPass(tex_cmd)
+    img_cpul := image.Load("img.jpg")
+    img_cpu := sdl.ConvertSurface(img_cpul, .RGBA32)
 
-    sdl.UploadToGPUTexture(tex_copy,
-        {
-            transfer_buffer = tex_transfer_buffer,
-        },
-        {
-            texture = tex,
-            d = 1,
-            w = u32(img_cpu.w),
-            h = u32(img_cpu.h),
-        },
-        false
-    )
-
-    sdl.EndGPUCopyPass(tex_copy)
-    ok = sdl.SubmitGPUCommandBuffer(tex_cmd); assert(ok)
+    tex := load_texture(gpu, "img.jpg")
+    tex_cirno := load_texture(gpu, "cirno_wplace.png")
 
     pipeline := sdl.CreateGPUGraphicsPipeline(
         gpu,
@@ -258,7 +200,7 @@ main :: proc() {
         append(&verts, ..quad_2)
         append(&verts, ..quad_3)
 
-        render(gpu, window, pipeline, vertex_buf, transfer_buffer, verts[:], {texture = tex, sampler = sampler})
+        render(gpu, window, pipeline, vertex_buf, transfer_buffer, verts[:], {texture = tex, sampler = sampler, texture2 = tex_cirno})
 
         delete(verts)
 
@@ -347,11 +289,17 @@ render :: proc(gpu: ^sdl.GPUDevice, window: ^sdl.Window, pipeline: ^sdl.GPUGraph
         buffer = v_buff,
         offset = 0
     }, 1 )
+    
+    
+    sdl.BindGPUFragmentSamplers(render_pass, 0,
+        &sdl.GPUTextureSamplerBinding { sampler = info.sampler, texture = info.texture2}, 1)
+        
+    sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, 0)
 
     sdl.BindGPUFragmentSamplers(render_pass, 0,
         &sdl.GPUTextureSamplerBinding { sampler = info.sampler, texture = info.texture}, 1)
-
-    sdl.DrawGPUPrimitives(render_pass, u32(len(vertex_data)), 1, 0, 0)
+        
+    sdl.DrawGPUPrimitives(render_pass, 12, 1, 6, 0)
     
     sdl.EndGPURenderPass(render_pass)
 
@@ -359,15 +307,85 @@ render :: proc(gpu: ^sdl.GPUDevice, window: ^sdl.Window, pipeline: ^sdl.GPUGraph
 
 }
 
-load_shader :: proc(device: ^sdl.GPUDevice, code: []byte, stage: sdl.GPUShaderStage) -> ^sdl.GPUShader {
-    return sdl.CreateGPUShader(
+create_shader :: proc(device: ^sdl.GPUDevice, spirv_code: []byte, stage: shadercross.ShaderStage) -> ^sdl.GPUShader {
+    metadata := shadercross.ReflectGraphicsSPIRV(raw_data(spirv_code), len(spirv_code), {})
+    
+    return shadercross.CompileGraphicsShaderFromSPIRV(
         device,
         {
-            code_size = len(code),
-            code = raw_data(code),
+            bytecode_size = len(spirv_code),
+            bytecote = raw_data(spirv_code),
             entrypoint = "main",
-            format = {.SPIRV},
-            stage = stage
+            shader_stage = stage,
+        },
+        metadata.resource_info,
+        {}
+    )
+}
+
+Texture_Type :: enum {
+    COLOR
+}
+
+load_texture :: proc(device: ^sdl.GPUDevice, file: cstring, type: Texture_Type = .COLOR) -> ^sdl.GPUTexture {
+    img := image.Load(file)
+    if img == nil {
+        log.warnf("Couldn't load image \"%s\"", file)
+        return nil
+    }
+    convert_format: sdl.PixelFormat
+    texture_format: sdl.GPUTextureFormat
+    switch type {
+        case .COLOR:
+            convert_format = .RGBA32
+            texture_format = .R8G8B8A8_UNORM_SRGB
+    }
+    img_convert := sdl.ConvertSurface(img, convert_format)
+    w := u32(img.w)
+    h := u32(img.h)
+
+    tex := sdl.CreateGPUTexture(
+        device,
+        {
+            format = texture_format,
+            width = w,
+            height = h,
+            layer_count_or_depth = 1,
+            num_levels = 1,
+            type = .D2,
+            usage = {.SAMPLER}
         }
     )
+
+    tex_size := sdl.CalculateGPUTextureFormatSize(texture_format, w, h, 1)
+
+    transfer_buffer := sdl.CreateGPUTransferBuffer(
+        device,
+        {
+            usage = .UPLOAD,
+            size = tex_size
+        }
+    )
+
+    transfer_ptr := sdl.MapGPUTransferBuffer(device, transfer_buffer, false)
+    mem.copy_non_overlapping(transfer_ptr, img_convert.pixels, int(tex_size))
+    sdl.UnmapGPUTransferBuffer(device, transfer_buffer)
+
+    cmdbuf := sdl.AcquireGPUCommandBuffer(device)
+    copy_pass := sdl.BeginGPUCopyPass(cmdbuf)
+
+    sdl.UploadToGPUTexture(copy_pass,
+        {
+            transfer_buffer = transfer_buffer
+        },
+        {
+            texture = tex,
+            d = 1,
+            w = w,
+            h = h,
+        }, false)
+    sdl.EndGPUCopyPass(copy_pass)
+    ok := sdl.SubmitGPUCommandBuffer(cmdbuf); assert(ok)
+    sdl.ReleaseGPUTransferBuffer(device, transfer_buffer)
+    return tex
 }
