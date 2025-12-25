@@ -7,7 +7,4 @@ layout(set=2, binding=0) uniform sampler2D tex;
 
 void main() {
     color = texture(tex, uv);
-    if (color.a < 0.1) {
-        discard;
-    }
 }

@@ -21,21 +21,35 @@ SizeU32 :: struct {
 Vec2 :: linalg.Vector2f32
 Color :: linalg.Vector4f32
 
+Tile :: struct {
+        pos: Vec2,
+        size: Vec2,
+        angle: f32,
+        texture_id: int
+    }
 Vertex_Data :: struct {
     pos: Vec2,
     uv: Vec2
 }
 
 Render_Info :: struct {
-    texture: ^sdl.GPUTexture,
-    texture2: ^sdl.GPUTexture,
+    texture: [10]^sdl.GPUTexture,
     sampler: ^sdl.GPUSampler,
+    tiles: []Tile
 }
 
 Program_State_Flags :: enum {
     QUIT
 }
 program_state : bit_set[Program_State_Flags]
+
+Input_Action_FLags :: enum {
+    LEFT,
+    RIGHT,
+    UP,
+    DOWN
+}
+input_action : bit_set[Input_Action_FLags]
 
 WIDTH :: 600
 HEIGHT :: 600
@@ -73,24 +87,9 @@ main :: proc() {
     ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .VSYNC); assert(ok)
 
     ok = shadercross.Init(); assert(ok)
-    formats := shadercross.GetHLSLShaderFormats()
-    fmt.println(formats)
-
-    frag_res_info: shadercross.GraphicsShaderResourceInfo = {
-        num_smaplers = 0,
-        num_storage_buffers = 0,
-        num_storage_textures = 0,
-        num_uniform_buffers = 0
-    }
-    frag_spirv_info: shadercross.SPIRV_Info = {
-
-    }
-
+    
     vert_shader := create_shader(gpu, vert_shader_spirv, .VERTEX)
-
     frag_shader := create_shader(gpu, frag_shader_spirv, .FRAGMENT)
-
-    vertices_size := 6 * 10 * size_of(Vertex_Data)
 
     vertex_buf := sdl.CreateGPUBuffer(
         gpu,
@@ -130,19 +129,15 @@ main :: proc() {
         }
     )
 
-    // load_texture(gpu, "sdsd.jpp")
-
-    img_cpul := image.Load("img.jpg")
-    img_cpu := sdl.ConvertSurface(img_cpul, .RGBA32)
 
     tex := load_texture(gpu, "img.jpg")
     tex_cirno := load_texture(gpu, "cirno_wplace.png")
+    tex_bg := load_texture(gpu, "bg.jpg")
+    tex_bg2 := load_texture(gpu, "bg2.png")
 
     pipeline := sdl.CreateGPUGraphicsPipeline(
         gpu,
         {
-            // vertex_shader = load_shader(gpu, vert_shader_spirv, .VERTEX),
-            // fragment_shader = load_shader(gpu, frag_shader_spirv, .FRAGMENT),
             vertex_shader = vert_shader,
             fragment_shader = frag_shader,
             primitive_type = .TRIANGLELIST,
@@ -160,24 +155,108 @@ main :: proc() {
                 num_color_targets = 1,
                 color_target_descriptions = &sdl.GPUColorTargetDescription{
                     format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-                }
+                    blend_state = {
+                        enable_blend = true,
+                        color_blend_op = .ADD,
+                        alpha_blend_op = .ADD,
+                        src_color_blendfactor = .SRC_ALPHA,
+                        dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+                        src_alpha_blendfactor = .SRC_ALPHA,
+                        dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA
+                    }
+                },
             }
         }
     )
 
+    
 
+    tiles: [dynamic]Tile
+
+    append(&tiles, Tile{texture_id = 2, pos = {-300, 200}, size = {700, 380}})
+
+    player_new: Tile = {
+        texture_id = 0,
+        pos = {0, 0},
+        size = {64, 72}
+    }
+
+    append(&tiles, player_new)
+
+    for t: f32 = -300; t < 300; t += 32 {
+        append(&tiles, Tile{
+        texture_id = 1,
+        pos = {t, -200},
+        size = {32, 32}
+    })
+    }
+
+    p_v: Vec2
 
     main_loop: for {
         ticks = sdl.GetTicksNS()
         time = f64(ticks) / 1_000_000_000
+        time32 := f32(time)
 
         handle_input()
 
+        move: Vec2 = {0,0}
+        if .UP in input_action do       move += {0, 1}
+        if .DOWN in input_action do     move += {0, -1}
+        if .LEFT in input_action do     move += {-1, 0}
+        if .RIGHT in input_action do    move += {1, 0}
+
+        player := &tiles[1]
+
+        p_v += {0, -0.02}
+        
+        if player.pos.y <= -200 + 72 {
+            p_v *= {1, 0}
+            // move *= {1, 0}
+        }
+        
+        player.pos += p_v
+        player.pos += move * 2
+        
+
         verts: [dynamic]Vertex_Data
 
-        quad1 := make_quad({-0.2, -0.2}, {0.2, 0.2})
-        quad2 := make_quad({-0.2, -0.2}, {0.2, 0.2})
-        quad3 := make_quad({-0.9, 0.05}, {0.9, -0.05})
+        for tile in tiles {
+            quad := make_quad(tile.pos, tile.pos + tile.size * {1, -1})
+            append(&verts, ..quad[:])
+        }
+
+        scale: f32 = 1
+        angle: f32 = 0.3
+        position: Vec2 = player.pos
+        
+
+        w_w, w_h: i32
+        sdl.GetWindowSize(window, &w_w, &w_h)
+        ww := f32(w_w)
+        wh := f32(w_h)
+        cameraT: linalg.Matrix3f32 = linalg.Matrix3f32(1)
+        cameraT[0,0] = 2/ww * scale
+        cameraT[1,1] = 2/wh * scale
+        c_rot := linalg.Matrix3f32(linalg.matrix2_rotate_f32(angle))
+        c_tra := linalg.Matrix3f32(1)
+        c_tra[2][0] = -position.x
+        c_tra[2][1] = -position.y
+
+        cameraT = cameraT * c_rot * c_tra
+
+        
+        for &point in verts {
+            pos3: linalg.Vector3f32
+            pos3.xy = point.pos
+            pos3.z = 1
+            pos3 = cameraT * pos3
+            point.pos = pos3.xy
+        }
+
+        // quad1 := make_quad({-0.2, -0.2}, {0.2, 0.2})
+        // quad2 := make_quad({-0.2, -0.2}, {0.2, 0.2})
+        // quad3 := make_quad({-0.9, 0.05}, {0.9, -0.05})
 
         // rot := linalg.matrix2_rotate_f32(f32(time))
         // rot3 := linalg.Matrix3x3f32(rot)
@@ -192,15 +271,23 @@ main :: proc() {
         //     point.pos = pos3.xy
         // }
 
-        quad_1 := xform_points(quad1[:], {math.sin(f32(time)) * 0.5, math.cos(f32(time)) * 0.5}, f32(time))
-        quad_2 := xform_points(quad2[:], {-math.sin(f32(time)) * 0.2, -math.cos(f32(time)) * 0.2}, -f32(time))
-        quad_3 := xform_points(quad3[:], {0, -math.cos(f32(time)) * 0.8}, 0)
+        // quad_1 := xform_points(quad1[:], {math.sin(time32) * 0.5, math.cos(time32) * 0.5}, time32*9)
+        // quad_2 := xform_points(quad2[:], {-math.sin(time32) * 0.2, -math.cos(time32) * 0.2}, -time32)
+        // quad_3 := xform_points(quad3[:], {0, -math.cos(time32) * 0.8}, 0)
 
-        append(&verts, ..quad_1)
-        append(&verts, ..quad_2)
-        append(&verts, ..quad_3)
+        // append(&verts, ..quad_1)
+        // append(&verts, ..quad_2)
+        // append(&verts, ..quad_3)
 
-        render(gpu, window, pipeline, vertex_buf, transfer_buffer, verts[:], {texture = tex, sampler = sampler, texture2 = tex_cirno})
+        render_info: Render_Info = {
+            sampler = sampler,
+            tiles = tiles[:]
+        }
+        render_info.texture[0] = tex_cirno
+        render_info.texture[1] = tex
+        render_info.texture[2] = tex_bg2
+
+        render(gpu, window, pipeline, vertex_buf, transfer_buffer, verts[:], render_info)
 
         delete(verts)
 
@@ -233,8 +320,32 @@ handle_input :: proc() {
             case .QUIT:
                 program_state += {.QUIT}
                 return
+            case .KEY_DOWN:
+                #partial switch ev.key.scancode {
+                    case .W:
+                        input_action += {.UP}
+                    case .S:
+                        input_action += {.DOWN}
+                    case .A:
+                        input_action += {.LEFT}
+                    case .D:
+                        input_action += {.RIGHT}
+                }
+            case .KEY_UP:
+                #partial switch ev.key.scancode {
+                    case .W:
+                        input_action -= {.UP}
+                    case .S:
+                        input_action -= {.DOWN}
+                    case .A:
+                        input_action -= {.LEFT}
+                    case .D:
+                        input_action -= {.RIGHT}
+                }
         }
     }
+
+    return
 }
 
 make_quad :: proc(tl, br: Vec2) -> [6]Vertex_Data {
@@ -289,17 +400,13 @@ render :: proc(gpu: ^sdl.GPUDevice, window: ^sdl.Window, pipeline: ^sdl.GPUGraph
         buffer = v_buff,
         offset = 0
     }, 1 )
-    
-    
-    sdl.BindGPUFragmentSamplers(render_pass, 0,
-        &sdl.GPUTextureSamplerBinding { sampler = info.sampler, texture = info.texture2}, 1)
-        
-    sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, 0)
-
-    sdl.BindGPUFragmentSamplers(render_pass, 0,
-        &sdl.GPUTextureSamplerBinding { sampler = info.sampler, texture = info.texture}, 1)
-        
-    sdl.DrawGPUPrimitives(render_pass, 12, 1, 6, 0)
+    tile_ptr: u32 = 0;
+    for tile in info.tiles {
+        sdl.BindGPUFragmentSamplers(render_pass, 0,
+           &sdl.GPUTextureSamplerBinding { sampler = info.sampler, texture = info.texture[tile.texture_id]}, 1)
+        sdl.DrawGPUPrimitives(render_pass, 6, 1, tile_ptr, 0)
+        tile_ptr += 6
+    }
     
     sdl.EndGPURenderPass(render_pass)
 
