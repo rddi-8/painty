@@ -1,6 +1,6 @@
 *.exe
 *.pdb
 *.S
-build/fonts/
-build/color/
+build/win/fonts/
+build/win/color/
 img.png

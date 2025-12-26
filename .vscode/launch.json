@@ -5,7 +5,7 @@
             "name": "Debug",
             "type": "cppvsdbg",
             "request": "launch",
-            "preLaunchTask": "Build",
+            "preLaunchTask": "Build-Debug",
             "program": "${workspaceFolder}/build/win/paint_debug.exe",
             "args": [],
             "cwd": "${workspaceFolder}/build/win/",
