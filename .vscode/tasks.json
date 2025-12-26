@@ -23,6 +23,11 @@
             "command": "odin build . -o:speed -microarch:native -out:build/win/paint.exe",
         },
         {
+            "label": "buildrun",
+            "type": "shell",
+            "command": "odin run . -microarch:native -out:build/win/paint.exe",
+        },
+        {
             "label": "copy-assets",
             "type": "shell",
             "command": "robocopy fonts build/win/fonts /E ; robocopy color build/win/color /E ; exit 0",
@@ -55,6 +60,13 @@
             "label": "Build (no copy)",
             "dependsOn": [
                 "build-o"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "Quick Build & Run",
+            "dependsOn": [
+                "buildrun"
             ],
             "group": "build"
         },

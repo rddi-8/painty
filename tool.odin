@@ -1,13 +1,5 @@
 package main
 
-Pen_Button :: enum {
-    TIP,
-    BT_1,
-    BT_2
-}
-
-Pen_Buttons :: bit_set[Pen_Button]
-
 PenState :: struct {
     screen_position: Vec2,
     canvas_position: Vec2,
@@ -15,6 +7,15 @@ PenState :: struct {
     held_buttons: Pen_Buttons,
     pressed_buttons: Pen_Buttons,
     released_buttons: Pen_Buttons,
+}
+
+MouseState :: struct {
+    screen_position: Vec2,
+    canvas_position: Vec2,
+    pressure: f32,
+    held_buttons: Mouse_Buttons,
+    pressed_buttons: Mouse_Buttons,
+    released_buttons: Mouse_Buttons,
 }
 
 ToolState :: struct {
