@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "Build",
+            "program": "${workspaceFolder}/build/win/paint_debug.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/build/win/",
+            "console": "internalConsole",
+            "internalConsoleOptions": "openOnSessionStart"
+        },
+        {
+            "name": "Launch",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "Build",
+            "program": "${workspaceFolder}/build/win/paint.exe",
+            "cwd": "${workspaceFolder}/build/win/",
+            "console": "internalConsole",
+            "internalConsoleOptions": "openOnSessionStart"
+        }
+
+    ]
+}

@@ -649,10 +649,10 @@ main :: proc() {
 
     fmt.println("Loading srgb icm")
     // in_profile := lcms.OpenProfileFromFile("sRGB.icm", "r")
-    in_profile := lcms.OpenProfileFromFile("sRGB.icm", "r")
+    in_profile := lcms.OpenProfileFromFile("color/sRGB.icm", "r")
     fmt.println("Loading dest icm")  
 
-    out_profile := lcms.OpenProfileFromFile("profile.icm", "r")
+    out_profile := lcms.OpenProfileFromFile("color/profile.icm", "r")
     fmt.println("creating transform")
     h_transform := lcms.CreateTransform(
         in_profile,
@@ -676,7 +676,7 @@ main :: proc() {
     
     if !sdlt.Init() do fmt.printfln("Opps {}", sdl.GetError())
     
-    ui_font = sdlt.OpenFont("DroidSans.ttf", 12)
+    ui_font = sdlt.OpenFont("fonts/DroidSans.ttf", 12)
     if (ui_font == nil) do print_err()
     
     

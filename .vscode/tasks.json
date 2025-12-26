@@ -1,0 +1,70 @@
+{
+    "version": "2.0.0",
+    "command": "",
+    "args": [],
+    "tasks": [
+        {
+            "label": "mkdir",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/C",
+                "if not exist .\\build\\win mkdir .\\build\\win"
+            ]
+        },
+        {
+            "label": "build-debug",
+            "type": "shell",
+            "command": "odin build . -debug -out:build/win/paint_debug.exe",
+        },
+        {
+            "label": "build-o",
+            "type": "shell",
+            "command": "odin build . -o:speed -microarch:native -out:build/win/paint.exe",
+        },
+        {
+            "label": "copy-assets",
+            "type": "shell",
+            "command": "robocopy fonts build/win/fonts /E ; robocopy color build/win/color /E ; exit 0",
+            "dependsOn": [
+                "mkdir"
+            ],
+        },
+
+        {
+            "label": "Build-Debug",
+            "dependsOn": [
+                "mkdir",
+                "compile-shaders",
+                "copy-assets",
+                "build-debug"
+            ],
+            "group": "build",
+        },
+        {
+            "label": "Build",
+            "dependsOn": [
+                "mkdir",
+                "compile-shaders",
+                "copy-assets",
+                "build-o"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "Build (no copy)",
+            "dependsOn": [
+                "build-o"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "compile-shaders",
+            "type": "shell",
+            "command": "glslc .\\shader.glsl.vert -o shader.spv.vert ; glslc .\\shader.glsl.frag -o shader.spv.frag",
+            "options": {
+                "cwd": "${workspaceFolder}/render/shaders"
+            },
+        }
+    ]
+}
