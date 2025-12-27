@@ -1,5 +1,8 @@
 package main
 
+import "core:time"
+import "base:builtin"
+import "core:math/rand"
 import "core:os"
 import "core:encoding/json"
 import "core:log"
@@ -102,9 +105,12 @@ main :: proc() {
     actions: [dynamic]Action
     held_actions: Currently_Held_Actions
 
-    slic: []Action = actions[:]
-    data, err  := json.marshal(keybind_map^, {pretty = true})
-    os.write_entire_file("humu.conf", data)
+    particles := make(Rect_List, 20000, 20000)
+    for &p in particles {
+        p.pos = {rand.float32_range(0, 2000), rand.float32_range(0, 1000)}
+        p.size = {3, 3}
+        p.color = {rand.float32_range(0, 1),rand.float32_range(0, 1),rand.float32_range(0, 1), 0.2}
+    }
     
     main_loop: for {
         ev: sdl.Event
@@ -194,9 +200,21 @@ main :: proc() {
         microui.end(mu)
 
         render_ui(app.ui_context)
+        
+        ww, wh :c.int
+        sdl.GetWindowSize(app.window, &ww, &wh)
+        render.create_render_target(app.render_info, u32(ww), u32(wh))
 
         scene := render.Scene{}
-        render.render_rects(app.render_info, app.ui_context.rect_list[:])
+        for &p in particles {
+            p.pos += {rand.float32_normal(0, 0.5), rand.float32_normal(0,0.5)}
+            // p.pos += {0, 0.01}
+        }
+        // time.sleep(1000000)
+        render.render_rects(app.render_info, particles[:], .CLEAR)
+        render.render_rects(app.render_info, app.ui_context.rect_list[:], .DONT_CARE)
+
+        render.present(app.render_info)
     }
 
    

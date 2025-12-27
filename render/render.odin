@@ -12,8 +12,8 @@ import "core:math/linalg"
 import "shadercross"
 
 
-VERTEX_BUFFER_SIZE : u32 :      8 * mem.Megabyte
-TRANSFER_BUFFER_SIZE : u32 :    8 * mem.Megabyte
+VERTEX_BUFFER_SIZE : u32 :      300 * mem.Megabyte
+TRANSFER_BUFFER_SIZE : u32 :    300 * mem.Megabyte
 
 SizeU32 :: struct {
     w, h: u32
@@ -54,6 +54,8 @@ Render_Info :: struct {
     VUB: VUB,
     pipeline_tex: ^sdl.GPUGraphicsPipeline,
     pipeline_rect: ^sdl.GPUGraphicsPipeline,
+    render_target: ^sdl.GPUTexture,
+    render_target_info: sdl.GPUTextureCreateInfo,
 }
 
 Program_State_Flags :: enum {
@@ -90,7 +92,7 @@ I_rect_frag := #load("shaders/rect.spv.frag")
 init :: proc(window: ^sdl.Window, render_info: ^Render_Info) {
     gpu := sdl.CreateGPUDevice({.SPIRV}, true, nil); assert(gpu != nil)
     ok := sdl.ClaimWindowForGPUDevice(gpu, window); assert(ok)
-    ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .IMMEDIATE); assert(ok)
+    ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR, .IMMEDIATE); assert(ok)
     ok = shadercross.Init(); assert(ok)
 
     render_info.device = gpu
@@ -471,7 +473,7 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
             target_info = {
                 num_color_targets = 1,
                 color_target_descriptions = &sdl.GPUColorTargetDescription{
-                    format = swapchain_format,
+                    format = .R16G16B16A16_FLOAT,
                     blend_state = {
                         enable_blend = true,
                         color_blend_op = .ADD,
@@ -495,13 +497,71 @@ ptr_offset :: proc(ptr: rawptr, offset: u32) -> rawptr {
     return rawptr(uintptr(ptr) + uintptr(offset))
 }
 
-render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance) {
+render_start_frame :: proc() {
+    ok: bool
+
+
+}
+
+create_render_target :: proc(render_info: ^Render_Info, w, h: u32) {
+    if (render_info.render_target != nil) {
+        sdl.ReleaseGPUTexture(render_info.device, render_info.render_target)
+    }
+    create_info := sdl.GPUTextureCreateInfo{
+        format = .R16G16B16A16_FLOAT,
+        width = w,
+        height = h,
+        layer_count_or_depth = 1,
+        num_levels = 1,
+        type = .D2,
+        usage = {.SAMPLER, .COLOR_TARGET},
+    }
+    render_info.render_target = sdl.CreateGPUTexture(render_info.device, create_info)
+    render_info.render_target_info = create_info
+
+}
+
+present :: proc(render_info: ^Render_Info) {
+    ok: bool
+    ok = sdl.WaitForGPUSwapchain(render_info.device, render_info.window); assert(ok)
+    cmd_buff := sdl.AcquireGPUCommandBuffer(render_info.device)
+    swapchain_tex: ^sdl.GPUTexture
+    swapchain_size: SizeU32
+    ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buff, render_info.window, &swapchain_tex, &swapchain_size.w, &swapchain_size.h); assert(ok)
+
+    rt := render_info.render_target
+    rti := render_info.render_target_info
+
+    sdl.BlitGPUTexture(cmd_buff, {
+        source = {
+            texture = rt,
+            w = rti.width,
+            h = rti.height,
+            layer_or_depth_plane = 0,
+            x = 0,
+            y = 0,
+        },
+        destination = {
+            texture = swapchain_tex,
+            w = swapchain_size.w,
+            h = swapchain_size.h,
+            layer_or_depth_plane = 0,
+            x = 0,
+            y = 0,
+        },
+    })
+
+    ok = sdl.SubmitGPUCommandBuffer(cmd_buff); assert(ok)
+
+}
+
+render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.GPULoadOp = .DONT_CARE) {
     ok: bool
     ri := render_info
 
     quad1x1 := make_quad({0,0}, {1,1})
 
-    transfer_ptr := sdl.MapGPUTransferBuffer(ri.device, ri.transfer_buff, false)
+    transfer_ptr := sdl.MapGPUTransferBuffer(ri.device, ri.transfer_buff, true)
     mem.copy_non_overlapping(transfer_ptr, raw_data(&quad1x1), size_of(quad1x1))
     mem.copy_non_overlapping(ptr_offset(transfer_ptr, size_of(quad1x1)), raw_data(rects), size_of(Rect_Instance)*len(rects))
     sdl.UnmapGPUTransferBuffer(ri.device, ri.transfer_buff)
@@ -525,15 +585,19 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance) {
     ok = sdl.SubmitGPUCommandBuffer(copy_cmd); assert(ok)
 
     cmd_buff := sdl.AcquireGPUCommandBuffer(ri.device)
-    swapchain_tex: ^sdl.GPUTexture
-    swapchain_size: SizeU32
-    ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buff, ri.window, &swapchain_tex, &swapchain_size.w, &swapchain_size.h); assert(ok)
+    // swapchain_tex: ^sdl.GPUTexture
+    // swapchain_size: SizeU32
+    // ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buff, ri.window, &swapchain_tex, &swapchain_size.w, &swapchain_size.h); assert(ok)
 
+    if (render_info.render_target == nil)
+    {
+        return
+    }
     color_target1 := sdl.GPUColorTargetInfo {
-        texture = swapchain_tex,
-        load_op = .CLEAR,
+        texture = render_info.render_target,
+        load_op = op,
         clear_color = {0.1, 0.05, 0.15, 1},
-        store_op = .STORE
+        store_op = .STORE,
     }
 
     color_targets := [?]sdl.GPUColorTargetInfo{color_target1}
@@ -552,7 +616,9 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance) {
                 offset = size_of(quad1x1)
             }
         }), 2)
-    screen_size := Vec2{f32(swapchain_size.w), f32(swapchain_size.h)}
+    sizew := render_info.render_target_info.width
+    sizeh := render_info.render_target_info.height
+    screen_size := Vec2{f32(sizew), f32(sizeh)}
     sdl.PushGPUVertexUniformData(cmd_buff, 0, &screen_size, size_of(screen_size))
     sdl.DrawGPUPrimitives(render_pass, 6, u32(len(rects)), 0, 0)
 
