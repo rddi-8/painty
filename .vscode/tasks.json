@@ -73,7 +73,7 @@
         {
             "label": "compile-shaders",
             "type": "shell",
-            "command": "glslc .\\shader.glsl.vert -o shader.spv.vert ; glslc .\\shader.glsl.frag -o shader.spv.frag",
+            "command": "glslc .\\shader.glsl.vert -o shader.spv.vert ; glslc .\\shader.glsl.frag -o shader.spv.frag ; glslc .\\rect.glsl.vert -o rect.spv.vert ; glslc .\\rect.glsl.frag -o rect.spv.frag",
             "options": {
                 "cwd": "${workspaceFolder}/render/shaders"
             },

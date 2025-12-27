@@ -1,5 +1,7 @@
 package main
 
+import "core:os"
+import "core:encoding/json"
 import "core:log"
 import "base:runtime"
 import "core:c"
@@ -8,6 +10,8 @@ import "core:mem"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import "vendor:microui"
+
+import "render"
 
 WINDOW_W :: 800
 WINDOW_H :: 400
@@ -19,8 +23,8 @@ tracking_alloc: mem.Tracking_Allocator
 
 Application :: struct {
     window: ^sdl.Window,
-    mu_context: ^microui.Context,
-    ui_font: ^ttf.Font
+    ui_context: ^Ui_Context,
+    render_info: ^render.Render_Info,
 }
 
 main_context: runtime.Context
@@ -42,10 +46,16 @@ main :: proc() {
     
     
     app := new(Application)
-    init_app(app, WINDOW_W, WINDOW_H)
+    init_app(app, WINDOW_W, WINDOW_H, "Painty")
 
     keybind_map := new(Key_Bind_Map)
 
+    add_keybind(keybind_map,
+        {
+            ctx = .PAINTING,
+            key = .ESCAPE,
+        },
+        Action_Simple{type = .QUIT})
     add_keybind(keybind_map,
         {
             ctx = .PAINTING,
@@ -90,12 +100,18 @@ main :: proc() {
     current_context := InputContext.PAINTING
 
     actions: [dynamic]Action
+    held_actions: Currently_Held_Actions
 
+    slic: []Action = actions[:]
+    data, err  := json.marshal(keybind_map^, {pretty = true})
+    os.write_entire_file("humu.conf", data)
+    
     main_loop: for {
         ev: sdl.Event
         for sdl.PollEvent(&ev) {
             #partial switch ev.type {
                 case .QUIT:
+                    log.debug("SDL QUIT")
                     break main_loop
                 case .KEY_DOWN:
                     keymod := ev.key.mod
@@ -122,6 +138,18 @@ main :: proc() {
                             }
                         }
                     }
+                case .MOUSE_MOTION:
+                    microui.input_mouse_move(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y))
+                case .MOUSE_BUTTON_UP:
+                    mu_mouse: microui.Mouse
+                    mu_mouse = microui.Mouse.LEFT
+                    microui.input_mouse_up(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
+                case .MOUSE_BUTTON_DOWN:
+                    mu_mouse: microui.Mouse
+                    mu_mouse = microui.Mouse.LEFT
+                    microui.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
+
+
             }
         }
 
@@ -138,11 +166,37 @@ main :: proc() {
                 case ToolToggle_Action:
                     log.debug("Toggle Tool Action:", "tool_id:", a.tool_id)
                 case Held_Action:
+                    if !a.up {
+                        held_actions += {a.type}
+                    }
+                    else {
+                        held_actions -= {a.type}
+                    }
                     log.debug("Held Action:", a.type, "up:", a.up)
             }
         }
-
         clear(&actions)
+
+        mu := app.ui_context.mu_context
+        microui.begin(mu)
+        microui.begin_window(mu, "Hehhh", {10, 10, 200, 400})
+        microui.button(mu, "BTN1")
+        microui.button(mu, "BTN2")
+        microui.button(mu, "BTN3")
+        microui.end_window(mu)
+
+        microui.begin_window(mu, "Hehhh2", {300, 10, 300, 300})
+        microui.button(mu, "BTN1")
+        microui.button(mu, "BTN2")
+        microui.button(mu, "BTN3")
+        microui.end_window(mu)
+
+        microui.end(mu)
+
+        render_ui(app.ui_context)
+
+        scene := render.Scene{}
+        render.render_rects(app.render_info, app.ui_context.rect_list[:])
     }
 
    
@@ -152,15 +206,18 @@ main :: proc() {
     
 }
 
-init_app :: proc(application: ^Application, window_w, window_h: int) {
+init_app :: proc(application: ^Application, window_w, window_h: int, name: cstring) {
     if !sdl.Init({.VIDEO}) do print_sdl_err()
     if !ttf.Init() do print_sdl_err()
 
-    application.window = sdl.CreateWindow("Painty", c.int(window_w), c.int(window_h), {.RESIZABLE})
+    application.window = sdl.CreateWindow(name, c.int(window_w), c.int(window_h), {.RESIZABLE})
     if application.window == nil do print_sdl_err()
 
-    application.ui_font = ttf.OpenFont("fonts/DroidSans.ttf", 12)
-    ui_init(application, application.ui_font)
+    application.render_info = new(render.Render_Info)
+    render.init(application.window, application.render_info)
+   
+    application.ui_context = new(Ui_Context)
+    ui_init(application.ui_context)
 }
 
 print_sdl_err :: proc() {

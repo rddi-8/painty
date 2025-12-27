@@ -50,7 +50,8 @@ Held_Action_Enum :: enum {
 Held_Action :: struct {
     type: Held_Action_Enum,
     up: bool,
-} 
+}
+Currently_Held_Actions :: bit_set[Held_Action_Enum] 
 
 Parameter_Action_Enum :: enum {
     ROTATE_CANVAS,
