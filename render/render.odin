@@ -112,128 +112,9 @@ init :: proc(window: ^sdl.Window, render_info: ^Render_Info) {
         size = TRANSFER_BUFFER_SIZE
     })
 
-    
+
     setup_samplers(gpu, render_info)
     setup_pipelines(gpu, render_info, sdl.GetGPUSwapchainTextureFormat(gpu, window))
-}
-
-main :: proc() {
-    context.logger = log.create_console_logger()
-    sdl.SetLogPriorities(.VERBOSE)
-    main_context =  context
-    sdl.SetLogOutputFunction(proc "c" (userdata: rawptr, category: sdl.LogCategory, priority: sdl.LogPriority, message: cstring) {
-        context = main_context
-        log.debugf("SDL {} [{}]: {}", category, priority, message)
-    }, nil)
-
-    ok := sdl.Init({.VIDEO}); assert(ok)
-
-    window := sdl.CreateWindow("hmmm", WIDTH, HEIGHT, {.RESIZABLE}); assert(window != nil)
-    gpu := sdl.CreateGPUDevice({.SPIRV}, true, nil); assert(gpu != nil)
-    ok = sdl.ClaimWindowForGPUDevice(gpu, window); assert(ok)
-    ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .IMMEDIATE); assert(ok)
-
-    ok = shadercross.Init(); assert(ok)
-    
-    
-
-    vertex_buf := sdl.CreateGPUBuffer(
-        gpu,
-        {
-            usage = {.VERTEX},
-            size = VERTEX_BUFFER_SIZE,
-        }
-    )
-    
-    
-    transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {
-        usage = .UPLOAD,
-        size = TRANSFER_BUFFER_SIZE
-    })
-    
-    render_info: Render_Info = {}
-    
-    setup_samplers(gpu, &render_info)
-    setup_pipelines(gpu, &render_info, sdl.GetGPUSwapchainTextureFormat(gpu, window))
-    
-    tex := load_texture(gpu, "img.jpg")
-    tex_cirno := load_texture(gpu, "cirno_wplace.png")
-    tex_bg := load_texture(gpu, "bg.jpg")
-    tex_bg2 := load_texture(gpu, "bg2.png")
-    
-    render_info.texture[0] = tex_cirno
-    render_info.texture[1] = tex
-    render_info.texture[2] = tex_bg2
-    
-    
-    scene := scene_create()
-    setup_cirno_scene(&scene)
-    
-    p_v: Vec2
-    
-    main_loop: for {
-        ticks = sdl.GetTicksNS()
-        time = f64(ticks) / 1_000_000_000
-        time32 := f32(time)
-        
-        handle_input()
-        
-        move: Vec2 = {0,0}
-        if .UP in input_action do       move += {0, 1}
-        if .DOWN in input_action do     move += {0, -1}
-        if .LEFT in input_action do     move += {-1, 0}
-        if .RIGHT in input_action do    move += {1, 0}
-        
-        player := scene_find(&scene, "player")
-        if player != nil {
-            p_v += {0, -0.02}
-            
-            if player.pos.y <= -200 + 72 {
-                p_v *= {1, 0}
-                // move *= {1, 0}
-            }
-            
-            player.pos += p_v
-            player.pos += move * 0.1
-        }
-        
-        
-        
-        verts: [dynamic]Vertex_Data
-        
-        generate_quads(scene.tiles[:], &verts)
-        
-        scale: f32 = 3
-        angle: f32 = 0.2
-        position: Vec2 = player.pos
-        
-        
-        w_w, w_h: i32
-        sdl.GetWindowSize(window, &w_w, &w_h)
-        ww := f32(w_w)
-        wh := f32(w_h)
-        cameraT: linalg.Matrix3f32 = linalg.Matrix3f32(1)
-        cameraT[0,0] = 2/ww * scale
-        cameraT[1,1] = 2/wh * scale
-        c_rot := linalg.Matrix3f32(linalg.matrix2_rotate_f32(angle))
-        c_tra := linalg.Matrix3f32(1)
-        c_tra[2][0] = -position.x
-        c_tra[2][1] = -position.y
-
-        cameraT = cameraT * c_rot * c_tra
-
-        render_info.VUB = { camera = align_matrix3(cameraT)}
-        
-        
-        
-        render(gpu, window, vertex_buf, transfer_buffer, verts[:], &render_info, scene)
-        
-        delete(verts)
-        
-        if .QUIT in program_state do break main_loop
-    }
-    
-    sdl.Quit()
 }
 
 xform_points :: proc(points: []Vertex_Data, translation: Vec2, angle: f32) -> []Vertex_Data {
@@ -489,10 +370,6 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
     )
 }
 
-render_frame :: proc(render_info: ^Render_Info, scene: Scene) {
-    render(render_info.device, render_info.window, render_info.vertex_buff, render_info.transfer_buff, {}, render_info, scene)
-}
-
 ptr_offset :: proc(ptr: rawptr, offset: u32) -> rawptr {
     return rawptr(uintptr(ptr) + uintptr(offset))
 }
@@ -565,13 +442,6 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.
     mem.copy_non_overlapping(transfer_ptr, raw_data(&quad1x1), size_of(quad1x1))
     mem.copy_non_overlapping(ptr_offset(transfer_ptr, size_of(quad1x1)), raw_data(rects), size_of(Rect_Instance)*len(rects))
     sdl.UnmapGPUTransferBuffer(ri.device, ri.transfer_buff)
-    // fmt.println(raw_data(rects))
-    // ii := 0
-    // for r in rects {
-    //     fmt.println(r)
-    //     ii += 1
-    // }
-    // fmt.println(ii)
 
     copy_cmd := sdl.AcquireGPUCommandBuffer(ri.device)
     copy_pass := sdl.BeginGPUCopyPass(copy_cmd)
@@ -585,9 +455,6 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.
     ok = sdl.SubmitGPUCommandBuffer(copy_cmd); assert(ok)
 
     cmd_buff := sdl.AcquireGPUCommandBuffer(ri.device)
-    // swapchain_tex: ^sdl.GPUTexture
-    // swapchain_size: SizeU32
-    // ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buff, ri.window, &swapchain_tex, &swapchain_size.w, &swapchain_size.h); assert(ok)
 
     if (render_info.render_target == nil)
     {
@@ -628,40 +495,49 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.
 
 }
 
-render :: proc(gpu: ^sdl.GPUDevice, window: ^sdl.Window, v_buff: ^sdl.GPUBuffer, transf_buf: ^sdl.GPUTransferBuffer, vertex_data: []Vertex_Data, render: ^Render_Info, scene: Scene) {
-    ok :bool
-    // vertices_size := len(vertex_data) * size_of(Vertex_Data)
+render_rects2 :: proc(render_info: ^Render_Info, rects: []Buffer_Portion, op: sdl.GPULoadOp = .DONT_CARE) {
+    ok: bool
+    ri := render_info
 
-    // transfer_ptr := sdl.MapGPUTransferBuffer(gpu, transf_buf, false)
-    // mem.copy_non_overlapping(transfer_ptr, raw_data(vertex_data), vertices_size)
-    // mem.copy_non_overlapping(transfer_ptr, raw_data(vertex_data), vertices_size)
-    // sdl.UnmapGPUTransferBuffer(gpu, transf_buf)
+    quad1x1 := make_quad({0,0}, {1,1})
 
-    // copy_cmd := sdl.AcquireGPUCommandBuffer(gpu)
-    // copy_pass := sdl.BeginGPUCopyPass(copy_cmd)
-    // sdl.UploadToGPUBuffer(copy_pass, {transfer_buffer = transf_buf, offset = 0}, {buffer = v_buff, offset = 0, size = u32(vertices_size)}, false)
-    // sdl.EndGPUCopyPass(copy_pass)
-    // ok := sdl.SubmitGPUCommandBuffer(copy_cmd); assert(ok)
-    
-    
-    
-    cmd_buff := sdl.AcquireGPUCommandBuffer(gpu)
-    swapchain_tex: ^sdl.GPUTexture
-    swapchain_size: SizeU32
-    ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buff, window, &swapchain_tex, &swapchain_size.w, &swapchain_size.h); assert(ok)
-    
+
+
+    cmd_buff := sdl.AcquireGPUCommandBuffer(ri.device)
+
+    if (render_info.render_target == nil)
+    {
+        return
+    }
     color_target1 := sdl.GPUColorTargetInfo {
-        texture = swapchain_tex,
-        load_op = .CLEAR,
+        texture = render_info.render_target,
+        load_op = op,
         clear_color = {0.1, 0.05, 0.15, 1},
-        store_op = .STORE
+        store_op = .STORE,
     }
 
     color_targets := [?]sdl.GPUColorTargetInfo{color_target1}
 
     render_pass := sdl.BeginGPURenderPass(cmd_buff, &color_targets[0], 1, nil)
 
- 
+    sdl.BindGPUGraphicsPipeline(render_pass, ri.pipeline_rect)
+    sdl.BindGPUVertexBuffers(render_pass, 0,
+        raw_data([]sdl.GPUBufferBinding{
+            {
+                buffer = ri.vertex_buff,
+                offset = 0
+            },
+            {
+                buffer = rects[0].vbuffer.buffer,
+                offset = 0
+            }
+        }), 2)
+    sizew := render_info.render_target_info.width
+    sizeh := render_info.render_target_info.height
+    screen_size := Vec2{f32(sizew), f32(sizeh)}
+    sdl.PushGPUVertexUniformData(cmd_buff, 0, &screen_size, size_of(screen_size))
+    sdl.DrawGPUPrimitives(render_pass, 6, 4, 0, 0)
+
     sdl.EndGPURenderPass(render_pass)
 
     ok = sdl.SubmitGPUCommandBuffer(cmd_buff); assert(ok)

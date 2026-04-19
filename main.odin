@@ -32,6 +32,8 @@ Application :: struct {
 
 main_context: runtime.Context
 
+timer: u64
+
 main :: proc() {
     mem.tracking_allocator_init(&tracking_alloc, context.allocator)
     defer mem.tracking_allocator_destroy(&tracking_alloc)
@@ -105,14 +107,39 @@ main :: proc() {
     actions: [dynamic]Action
     held_actions: Currently_Held_Actions
 
-    particles := make(Rect_List, 20000, 20000)
+    particles := make(Rect_List, 200000, 200000)
     for &p in particles {
         p.pos = {rand.float32_range(0, 2000), rand.float32_range(0, 1000)}
-        p.size = {3, 3}
+        p.size = {rand.float32_range(1,32), rand.float32_range(1,32)}
         p.color = {rand.float32_range(0, 1),rand.float32_range(0, 1),rand.float32_range(0, 1), 0.2}
     }
+    fmt.println(size_of(render.Rect_Instance)*len(particles))
+
+    /// TESTY
+    rr1 := [2]render.Rect_Instance{
+        {pos = {20, 20}, size = {40,40}, color = {1,0,0,1}},
+        {pos = {120, 20}, size = {40,40}, color = {0,1,0,1}},
+    }
+    rr2 := [2]render.Rect_Instance{
+        {pos = {20, 120}, size = {40,40}, color = {1,0,0.5,1}},
+        {pos = {120, 120}, size = {40,40}, color = {0,1,0.5,1}},
+    }
+    vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10000)
+    r_buff1, _ := render.vbuffer_reserve(vbuff, size_of(render.Rect_Instance) * len(rr1))
+    r_buff2, _ := render.vbuffer_reserve(vbuff, size_of(render.Rect_Instance) * len(rr2))
+
+    cp1 := [2]render.Copy_Description{
+        {src = {ptr = raw_data(rr1[:]), size = size_of(render.Rect_Instance) * len(rr1)}, dst = r_buff1},
+        {src = {ptr = raw_data(rr2[:]), size = size_of(render.Rect_Instance) * len(rr2)}, dst = r_buff2}
+    }
+    render.vbuffer_batch_copy(app.render_info, vbuff, cp1[:])
+
     
     main_loop: for {
+        last_frame: u64 = sdl.GetTicksNS() - timer
+        fmt.printfln("%.2f ms", f64(last_frame)/1000000)
+        timer = sdl.GetTicksNS()
+
         ev: sdl.Event
         for sdl.PollEvent(&ev) {
             #partial switch ev.type {
@@ -148,11 +175,25 @@ main :: proc() {
                     microui.input_mouse_move(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y))
                 case .MOUSE_BUTTON_UP:
                     mu_mouse: microui.Mouse
-                    mu_mouse = microui.Mouse.LEFT
+                    switch ev.button.button {
+                        case sdl.BUTTON_LEFT:
+                            mu_mouse = microui.Mouse.LEFT
+                        case sdl.BUTTON_RIGHT:
+                            mu_mouse = microui.Mouse.RIGHT
+                        case sdl.BUTTON_MIDDLE:
+                            mu_mouse = microui.Mouse.MIDDLE
+                    }
                     microui.input_mouse_up(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
                 case .MOUSE_BUTTON_DOWN:
                     mu_mouse: microui.Mouse
-                    mu_mouse = microui.Mouse.LEFT
+                    switch ev.button.button {
+                        case sdl.BUTTON_LEFT:
+                            mu_mouse = microui.Mouse.LEFT
+                        case sdl.BUTTON_RIGHT:
+                            mu_mouse = microui.Mouse.RIGHT
+                        case sdl.BUTTON_MIDDLE:
+                            mu_mouse = microui.Mouse.MIDDLE
+                    }
                     microui.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
 
 
@@ -207,12 +248,13 @@ main :: proc() {
 
         scene := render.Scene{}
         for &p in particles {
-            p.pos += {rand.float32_normal(0, 0.5), rand.float32_normal(0,0.5)}
-            // p.pos += {0, 0.01}
+            // p.pos += {rand.float32_normal(0, 1), rand.float32_normal(0,1)}
+            p.pos += {0, 0.01}
         }
         // time.sleep(1000000)
         render.render_rects(app.render_info, particles[:], .CLEAR)
         render.render_rects(app.render_info, app.ui_context.rect_list[:], .DONT_CARE)
+        render.render_rects2(app.render_info, []render.Buffer_Portion{r_buff1, r_buff2}, .LOAD)
 
         render.present(app.render_info)
     }
