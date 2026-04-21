@@ -117,42 +117,12 @@ main :: proc() {
     actions: [dynamic]Action
     held_actions: Currently_Held_Actions
 
-    particles := make(Rect_List, 20000, 20000)
-    for &p in particles {
-        p.pos = {rand.float32_range(0, 2000), rand.float32_range(0, 1000)}
-        p.size = {rand.float32_range(1,32), rand.float32_range(1,32)}
-        p.color = {rand.float32_range(0, 1),rand.float32_range(0, 1),rand.float32_range(0, 1), 0.2}
-    }
-    fmt.printfln("size of particles: %M (element: %M)", size_of(render.Rect_Instance)*len(particles), size_of(render.Rect_Instance))
-
-    /// TESTY
-    rr1 := [2]render.Rect_Instance{
-        {pos = {20, 20}, size = {40,40}, color = {1,0,0,1}},
-        {pos = {120, 20}, size = {40,40}, color = {0,1,0,1}},
-    }
-    rr2 := [2]render.Rect_Instance{
-        {pos = {20, 120}, size = {40,40}, color = {1,0,0.5,1}},
-        {pos = {120, 120}, size = {40,40}, color = {0,1,0.5,1}},
-    }
-    r_mov := [1]render.Rect_Instance{
-        {pos = {100, 100}, size = {20, 20}, color = {0,0,1,1}}
-    }
-
+ 
     vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10000)
     vbuff2 := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10000)
     
     tex_quad_idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 10000)
-    
-    blue_buffer, _ := render.vbuffer_reserve(vbuff, size_of(render.Rect_Instance) * len(r_mov))
-    r_buff1, _ := render.vbuffer_reserve(vbuff, size_of(render.Rect_Instance) * len(rr1))
-    r_buff2, _ := render.vbuffer_reserve(vbuff, size_of(render.Rect_Instance) * len(rr2))
-
-    cp1 := [2]render.Copy_Description{
-        {src = {ptr = raw_data(rr1[:]), size = size_of(render.Rect_Instance) * len(rr1)}, dst = r_buff1},
-        {src = {ptr = raw_data(rr2[:]), size = size_of(render.Rect_Instance) * len(rr2)}, dst = r_buff2}
-    }
-    
-    render.vbuffer_batch_copy(app.render_info, cp1[:])
+      
     
     ww, wh :c.int
     sdl.GetWindowSize(app.window, &ww, &wh)
@@ -223,7 +193,6 @@ main :: proc() {
                     }
                     microui.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
 
-
             }
         }
 
@@ -269,56 +238,21 @@ main :: proc() {
         
         microui.end(mu)
         
-        
-        
-        // for &b in r_mov {
-            //     b.pos += {0.01, 0}
-            // }
-            
-            // cp_r := [1]render.Copy_Description{
-                //     {src = {ptr = raw_data(r_mov[:]), size = size_of(render.Rect_Instance) * len(r_mov)}, dst = blue_buffer}
-                // }
-                
-                // render.vbuffer_batch_copy(app.render_info, cp_r[:])
-                
-        scene := render.Scene{}
-        for &p in particles {
-            // p.pos += {rand.float32_normal(0, 1), rand.float32_normal(0,1)}
-            p.pos += {0, 0.01}
-        }
-        // time.sleep(1000000)
+
         render.vbuffer_reset(vbuff)
         render.vbuffer_reset(vbuff2)
         render.vbuffer_reset(tex_quad_idxbuff)
         
         
-        // render.render_rects(app.render_info, particles[:], .CLEAR)
-        // if (true) {
-        //     render.present(app.render_info)
-        //     fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
-        //     free_all(context.temp_allocator)
-        //     continue
-        // }
-        // render.render_rects(app.render_info, app.ui_context.rect_list[:], .DONT_CARE)
-        // render.render_rects2(app.render_info, []render.Buffer_Portion{r_buff1, r_buff2, blue_buffer}, .LOAD)
-        
-        // text := ttf.CreateText(app.text_renderer.text_engine, app.text_renderer.font, "Hello World!", 0)
-        // text_seq := ttf.GetGPUTextDrawData(text)
-        
-        // for t in app.ui_context.text_seq {
-        //     render.render_text(app.render_info, t, vbuff, vbuff2, tex_quad_idxbuff)
-        // }
-        
-        // render.render_text(app.render_info, text_seq, vbuff, vbuff2, tex_quad_idxbuff)
         
         render_ui(app.ui_context, app, vbuff, tex_quad_idxbuff)
         
         render.present(app.render_info)
         
-        // ttf.DestroyText(text)
+
         clear(&app.ui_context.text_seq)
 
-        fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
+        // fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
         free_all(context.temp_allocator)
     }
 

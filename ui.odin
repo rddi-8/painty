@@ -149,7 +149,7 @@ render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Bu
     sdl.EndGPUCopyPass(copy_pass)
     ok := sdl.SubmitGPUCommandBuffer(copy_cmd); assert(ok)
 
-    render.render_text2(app.render_info, vf.atlas, u32(vf.index_count), &vbuff, &idxbuff)
+    render.render_ui_elements(app.render_info, vf.atlas, u32(vf.index_count), &vbuff, &idxbuff)
 
 
 }
