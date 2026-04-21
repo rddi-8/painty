@@ -1,5 +1,7 @@
 package render
 
+import "vendor:sdl3/ttf"
+import "core:strings"
 import "core:slice"
 import "vendor:sdl3/image"
 import "core:mem"
@@ -11,9 +13,10 @@ import "core:math"
 import "core:math/linalg"
 import "shadercross"
 
+DEBUG : bool : false
 
-VERTEX_BUFFER_SIZE : u32 :      300 * mem.Megabyte
-TRANSFER_BUFFER_SIZE : u32 :    300 * mem.Megabyte
+VERTEX_BUFFER_SIZE : u32 :      100 * mem.Megabyte
+TRANSFER_BUFFER_SIZE : u32 :    100 * mem.Megabyte
 
 SizeU32 :: struct {
     w, h: u32
@@ -21,6 +24,7 @@ SizeU32 :: struct {
 
 Vec2 :: linalg.Vector2f32
 Vec3 :: linalg.Vector3f32
+Color8 :: [4]u8
 Matrix2 :: linalg.Matrix2f32
 Matrix3 :: linalg.Matrix3f32
 Matrix3align :: matrix[4,3]f32
@@ -34,12 +38,14 @@ Tile :: struct {
     }
 Vertex_Data :: struct {
     pos: Vec2,
-    uv: Vec2
+    uv: Vec2,
+    color: Color8
 }
 Rect_Instance :: struct {
     pos: Vec2,
     size: Vec2,
-    color: Color
+    color: Color,
+    uv: Vec2
 }
 VUB :: struct #max_field_align(16) {
     camera: Matrix3align,
@@ -48,7 +54,9 @@ Render_Info :: struct {
     device: ^sdl.GPUDevice,
     window: ^sdl.Window,
     vertex_buff: ^sdl.GPUBuffer,
+    vertex_buff_size: u32,
     transfer_buff: ^sdl.GPUTransferBuffer,
+    transfer_buff_size: u32,
     texture: [10]^sdl.GPUTexture,
     linear_sampler: ^sdl.GPUSampler,
     VUB: VUB,
@@ -88,9 +96,9 @@ I_shader_frag := #load("shaders/shader.spv.frag")
 I_rect_vert := #load("shaders/rect.spv.vert")
 I_rect_frag := #load("shaders/rect.spv.frag")
 
-
+//MARK: INIT
 init :: proc(window: ^sdl.Window, render_info: ^Render_Info) {
-    gpu := sdl.CreateGPUDevice({.SPIRV}, true, nil); assert(gpu != nil)
+    gpu := sdl.CreateGPUDevice({.SPIRV}, DEBUG, nil); assert(gpu != nil)
     ok := sdl.ClaimWindowForGPUDevice(gpu, window); assert(ok)
     ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR, .IMMEDIATE); assert(ok)
     ok = shadercross.Init(); assert(ok)
@@ -105,12 +113,13 @@ init :: proc(window: ^sdl.Window, render_info: ^Render_Info) {
             size = VERTEX_BUFFER_SIZE,
         }
     )
-    
+    render_info.vertex_buff_size = VERTEX_BUFFER_SIZE
     
     render_info.transfer_buff = sdl.CreateGPUTransferBuffer(gpu, {
         usage = .UPLOAD,
         size = TRANSFER_BUFFER_SIZE
     })
+    render_info.transfer_buff_size = TRANSFER_BUFFER_SIZE
 
 
     setup_samplers(gpu, render_info)
@@ -246,6 +255,7 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
     vert_shader_rect := create_shader(device, I_rect_vert, .VERTEX)
     frag_shader_rect := create_shader(device, I_rect_frag, .FRAGMENT)
 
+    //MARK: tex pipeline
     vertex_attrs_tex := []sdl.GPUVertexAttribute {
         {   // POSITION
             buffer_slot = 0,
@@ -258,6 +268,12 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
             location = 1,
             format = .FLOAT2,
             offset = u32(offset_of(Vertex_Data, uv))
+        },
+        {   // COLOR
+            buffer_slot = 0,
+            location = 2,
+            format = .UBYTE4_NORM,
+            offset = u32(offset_of(Vertex_Data, color)),
         }
     }
 
@@ -269,18 +285,20 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
             primitive_type = .TRIANGLELIST,
             vertex_input_state = {
                 num_vertex_buffers = 1,
-                vertex_buffer_descriptions = &sdl.GPUVertexBufferDescription {
-                    slot = 0,
-                    pitch = size_of(Vertex_Data),
-                    input_rate = .VERTEX
-                },
+                vertex_buffer_descriptions = raw_data([]sdl.GPUVertexBufferDescription{
+                    {
+                        slot = 0,
+                        pitch = size_of(Vertex_Data),
+                        input_rate = .VERTEX
+                    }
+                }),
                 num_vertex_attributes = u32(len(vertex_attrs_tex)),
                 vertex_attributes = raw_data(vertex_attrs_tex)
             },
             target_info = {
                 num_color_targets = 1,
                 color_target_descriptions = &sdl.GPUColorTargetDescription{
-                    format = swapchain_format,
+                    format = .R16G16B16A16_FLOAT,
                     blend_state = {
                         enable_blend = true,
                         color_blend_op = .ADD,
@@ -294,7 +312,7 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
             }
         }
     )
-
+    //MARK: rect pipeline
     vertex_attrs_rect := []sdl.GPUVertexAttribute {
         {   // POSITION
             buffer_slot = 0,
@@ -432,7 +450,143 @@ present :: proc(render_info: ^Render_Info) {
 
 }
 
-render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.GPULoadOp = .DONT_CARE) {
+render_text :: proc(render_info: ^Render_Info, draw_data: ^ttf.GPUAtlasDrawSequence, vbuffer: ^Virtual_Buffer, vbuffer2: ^Virtual_Buffer, idxbuffer: ^Virtual_Buffer) {
+    ok: bool
+
+    if (draw_data == nil || render_info.render_target == nil) {
+        return
+    }
+    num_vert := u32(draw_data.num_vertices)
+    num_idx := u32(draw_data.num_indices)
+    fmt.printfln("vert: %d, u32: %d", draw_data.num_vertices, num_vert)
+    fmt.printfln("idx: %d, u32: %d", draw_data.num_indices, num_idx)
+    
+    vertices_xy, err1 := vbuffer_reserve(vbuffer, num_vert * size_of(sdl.FPoint))
+    vertices_uv, err2 := vbuffer_reserve(vbuffer2, num_vert * size_of(sdl.FPoint))
+    // fmt.print(err2)
+    indx, err3 := vbuffer_reserve(idxbuffer, num_idx * size_of(u32))
+    // fmt.print(err3)
+    fmt.printfln("vert: {} uv: {}, idx: {}", err1, err2, err3)
+
+
+
+    cp_op := [3]Copy_Description{
+        {src = {ptr = draw_data.xy, size = num_vert * size_of(sdl.FPoint)}, dst = vertices_xy},
+        {src = {ptr = draw_data.uv, size = num_vert * size_of(sdl.FPoint)}, dst = vertices_uv},
+        {src = {ptr = draw_data.indices, size = num_idx * size_of(u32)}, dst = indx},
+    }
+    // fmt.println(vertices_xy.offset)
+    // fmt.println(vertices_uv.offset)
+
+    vbuffer_batch_copy(render_info, cp_op[:])
+
+    cmd_buff := sdl.AcquireGPUCommandBuffer(render_info.device)
+
+    sdl.PushGPUDebugGroup(cmd_buff, "text")
+
+    color_target := sdl.GPUColorTargetInfo {
+        texture = render_info.render_target,
+        load_op = .LOAD,
+        store_op = .STORE
+    }
+
+    color_targets := [?]sdl.GPUColorTargetInfo{color_target}
+    
+    render_pass := sdl.BeginGPURenderPass(cmd_buff, raw_data(color_targets[:]), 1, nil)
+
+
+    sdl.BindGPUGraphicsPipeline(render_pass, render_info.pipeline_tex)
+    sdl.BindGPUVertexBuffers(render_pass, 0,
+        raw_data([]sdl.GPUBufferBinding{
+            {
+                buffer = vertices_xy.vbuffer.buffer,
+                offset = vertices_xy.offset
+            },
+            {
+                buffer = vertices_uv.vbuffer.buffer,
+                offset = vertices_uv.offset
+            }
+        }), 2)
+    sdl.BindGPUIndexBuffer(render_pass,
+        {
+            buffer = indx.vbuffer.buffer,
+            offset = indx.offset
+        }, ._32BIT)
+    sdl.BindGPUFragmentSamplers(render_pass, 0,
+        raw_data([]sdl.GPUTextureSamplerBinding{
+            {
+                texture = draw_data.atlas_texture,
+                sampler = render_info.linear_sampler
+            }
+        }), 1)
+    
+    sizew := render_info.render_target_info.width
+    sizeh := render_info.render_target_info.height
+    screen_size := Vec2{f32(sizew), f32(sizeh)}
+    sdl.PushGPUVertexUniformData(cmd_buff, 0, &screen_size, size_of(screen_size))
+
+    sdl.DrawGPUIndexedPrimitives(render_pass, u32(draw_data.num_indices), 1, 0, 0, 0)
+
+    sdl.EndGPURenderPass(render_pass)
+    sdl.PopGPUDebugGroup(cmd_buff)
+    ok = sdl.SubmitGPUCommandBuffer(cmd_buff); assert(ok)
+}
+
+render_text2 :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, num_indices: u32, vbuffer: ^Buffer_Portion, idxbuffer: ^Buffer_Portion) {
+    ok: bool
+
+
+
+    cmd_buff := sdl.AcquireGPUCommandBuffer(render_info.device)
+
+    sdl.PushGPUDebugGroup(cmd_buff, "UI")
+
+    color_target := sdl.GPUColorTargetInfo {
+        texture = render_info.render_target,
+        load_op = .CLEAR,
+        store_op = .STORE,
+        clear_color = {0.1, 0.07, 0.08, 1.0}
+    }
+
+    color_targets := [?]sdl.GPUColorTargetInfo{color_target}
+    
+    render_pass := sdl.BeginGPURenderPass(cmd_buff, raw_data(color_targets[:]), 1, nil)
+
+
+    sdl.BindGPUGraphicsPipeline(render_pass, render_info.pipeline_tex)
+    sdl.BindGPUVertexBuffers(render_pass, 0,
+        raw_data([]sdl.GPUBufferBinding{
+            {
+                buffer = vbuffer.vbuffer.buffer,
+                offset = vbuffer.offset
+            }
+        }), 1)
+    sdl.BindGPUIndexBuffer(render_pass,
+        {
+            buffer = idxbuffer.vbuffer.buffer,
+            offset = idxbuffer.offset
+        }, ._32BIT)
+    sdl.BindGPUFragmentSamplers(render_pass, 0,
+        raw_data([]sdl.GPUTextureSamplerBinding{
+            {
+                texture = tex,
+                sampler = render_info.linear_sampler
+            }
+        }), 1)
+    
+    sizew := render_info.render_target_info.width
+    sizeh := render_info.render_target_info.height
+    screen_size := Vec2{f32(sizew), f32(sizeh)}
+    sdl.PushGPUVertexUniformData(cmd_buff, 0, &screen_size, size_of(screen_size))
+
+    sdl.DrawGPUIndexedPrimitives(render_pass, num_indices , 1, 0, 0, 0)
+
+    sdl.EndGPURenderPass(render_pass)
+    sdl.PopGPUDebugGroup(cmd_buff)
+    ok = sdl.SubmitGPUCommandBuffer(cmd_buff); assert(ok)
+}
+
+render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.GPULoadOp = .DONT_CARE, debug_name: cstring = "render_rects") {
     ok: bool
     ri := render_info
 
@@ -444,6 +598,7 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.
     sdl.UnmapGPUTransferBuffer(ri.device, ri.transfer_buff)
 
     copy_cmd := sdl.AcquireGPUCommandBuffer(ri.device)
+    sdl.PushGPUDebugGroup(copy_cmd, strings.clone_to_cstring(strings.concatenate({string(debug_name), "_copy"})))
     copy_pass := sdl.BeginGPUCopyPass(copy_cmd)
     sdl.UploadToGPUBuffer(copy_pass,
         {transfer_buffer = ri.transfer_buff, offset = 0},
@@ -452,9 +607,12 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.
         {transfer_buffer = ri.transfer_buff, offset = u32(size_of(quad1x1))},
         {buffer = ri.vertex_buff, offset = u32(size_of(quad1x1)), size = u32(size_of(Rect_Instance)*len(rects))}, false)
     sdl.EndGPUCopyPass(copy_pass)
+    sdl.PopGPUDebugGroup(copy_cmd)
     ok = sdl.SubmitGPUCommandBuffer(copy_cmd); assert(ok)
 
     cmd_buff := sdl.AcquireGPUCommandBuffer(ri.device)
+
+    sdl.PushGPUDebugGroup(cmd_buff, debug_name)
 
     if (render_info.render_target == nil)
     {
@@ -491,11 +649,12 @@ render_rects :: proc(render_info: ^Render_Info, rects: []Rect_Instance, op: sdl.
 
     sdl.EndGPURenderPass(render_pass)
 
+    sdl.PopGPUDebugGroup(cmd_buff)
     ok = sdl.SubmitGPUCommandBuffer(cmd_buff); assert(ok)
 
 }
 
-render_rects2 :: proc(render_info: ^Render_Info, rects: []Buffer_Portion, op: sdl.GPULoadOp = .DONT_CARE) {
+render_rects2 :: proc(render_info: ^Render_Info, rects: []Buffer_Portion, op: sdl.GPULoadOp = .DONT_CARE, debug_name: cstring = "render_rects") {
     ok: bool
     ri := render_info
 
@@ -504,6 +663,7 @@ render_rects2 :: proc(render_info: ^Render_Info, rects: []Buffer_Portion, op: sd
 
 
     cmd_buff := sdl.AcquireGPUCommandBuffer(ri.device)
+    sdl.PushGPUDebugGroup(cmd_buff, debug_name)
 
     if (render_info.render_target == nil)
     {
@@ -539,7 +699,8 @@ render_rects2 :: proc(render_info: ^Render_Info, rects: []Buffer_Portion, op: sd
     sdl.DrawGPUPrimitives(render_pass, 6, 4, 0, 0)
 
     sdl.EndGPURenderPass(render_pass)
-
+    
+    sdl.PopGPUDebugGroup(cmd_buff)
     ok = sdl.SubmitGPUCommandBuffer(cmd_buff); assert(ok)
 
 }

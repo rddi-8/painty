@@ -58,7 +58,9 @@ create_vbuffer :: proc(device: ^sdl.GPUDevice, usage: sdl.GPUBufferUsageFlags, s
     return vbuff
 }
 
-vbuffer_reserve :: proc(vbuffer: ^Virtual_Buffer, size: u32) -> (result: Buffer_Portion, err: VBuffErr) {
+vbuffer_reserve_explicit :: proc(vbuffer: ^Virtual_Buffer, size: u32) -> (result: Buffer_Portion, err: VBuffErr) {
+    // fmt.printfln("reserving %d + %d/%d", vbuffer.pointer, size, vbuffer.size)
+    // fmt.println(vbuffer.size)
     if vbuffer.pointer + size > vbuffer.size {
         return {}, .VBUFF_OUT_OF_CAPACITY
     }
@@ -73,13 +75,39 @@ vbuffer_reserve :: proc(vbuffer: ^Virtual_Buffer, size: u32) -> (result: Buffer_
     }
 }
 
-vbuffer_batch_copy :: proc(render_info: ^Render_Info, vbuffer: ^Virtual_Buffer, batch: []Copy_Description) -> (err: VBuffErr) {
+vbuffer_reserve_slice :: proc(vbuffer: ^Virtual_Buffer, data: $T/[]$E) -> (result: Buffer_Portion, err: VBuffErr) {
+    // fmt.printfln("reserving %d/%d", size, vbuffer.size)
+    size: u32 = (u32)(len(data) * size_of(E))
+    if vbuffer.pointer + size > vbuffer.size {
+        return {}, .VBUFF_OUT_OF_CAPACITY
+    }
+    else {
+        result = {
+            vbuffer = vbuffer,
+            offset = vbuffer.pointer,
+            size = size,
+        }
+        vbuffer.pointer += size
+        return
+    }
+}
+
+vbuffer_reserve :: proc{
+    vbuffer_reserve_explicit,
+    vbuffer_reserve_slice,
+}
+
+vbuffer_reset :: proc(vbuffer: ^Virtual_Buffer) {
+    vbuffer.pointer = 0
+}
+
+vbuffer_batch_copy :: proc(render_info: ^Render_Info, batch: []Copy_Description) -> (err: VBuffErr) {
     device := render_info.device
     t_buff := render_info.transfer_buff
 
     t_sources: [dynamic]Transfer_Source
 
-    t_ptr: = sdl.MapGPUTransferBuffer(device, t_buff, false)
+    t_ptr: = sdl.MapGPUTransferBuffer(device, t_buff, true)
     offset: u32 = 0
 
     for copy_op in batch {
@@ -110,8 +138,8 @@ vbuffer_batch_copy :: proc(render_info: ^Render_Info, vbuffer: ^Virtual_Buffer, 
             return .SRC_SIZE_TOO_LARGE
         }
         
-        fmt.println(sdl.GPUTransferBufferLocation{transfer_buffer = src.transfer_buffer, offset = src.offset},
-            sdl.GPUBufferRegion{buffer = dst.vbuffer.buffer, offset = dst.offset, size = src.size})
+        // fmt.println(sdl.GPUTransferBufferLocation{transfer_buffer = src.transfer_buffer, offset = src.offset},
+        //     sdl.GPUBufferRegion{buffer = dst.vbuffer.buffer, offset = dst.offset, size = src.size})
         sdl.UploadToGPUBuffer(copy_pass,
             {transfer_buffer = src.transfer_buffer, offset = src.offset},
             {buffer = dst.vbuffer.buffer, offset = dst.offset, size = src.size},
