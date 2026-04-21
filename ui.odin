@@ -4,7 +4,7 @@ import sdl "vendor:sdl3"
 import "core:strings"
 import "core:log"
 import "core:fmt"
-import mu "vendor:microui"
+import mu "microui"
 import "vendor:sdl3/ttf"
 import "render"
 
@@ -49,7 +49,7 @@ mu_text_width :: proc(font: mu.Font, str: string) -> i32 {
     text := ttf.CreateText(nil, ttf_font, fmt.ctprint(str), 0)
     if (text == nil) do print_sdl_err()
 
-    w: i32 = 16
+    w: i32
     text_size := ttf.GetTextSize(text, &w, nil)
     ttf.DestroyText(text)
     return w

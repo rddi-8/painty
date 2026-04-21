@@ -1,11 +1,5 @@
 package main
 
-import "core:math"
-import "core:time"
-import "base:builtin"
-import "core:math/rand"
-import "core:os"
-import "core:encoding/json"
 import "core:log"
 import "base:runtime"
 import "core:c"
@@ -13,7 +7,7 @@ import "vendor:sdl3/ttf"
 import "core:mem"
 import "core:fmt"
 import sdl "vendor:sdl3"
-import "vendor:microui"
+import "microui"
 
 import "render"
 
@@ -118,10 +112,9 @@ main :: proc() {
     held_actions: Currently_Held_Actions
 
  
-    vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10000)
-    vbuff2 := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10000)
+    vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 30 * mem.Megabyte)
     
-    tex_quad_idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 10000)
+    idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 10000)
       
     
     ww, wh :c.int
@@ -232,20 +225,35 @@ main :: proc() {
         
         microui.begin_window(mu, "Hehhh2", {300, 10, 300, 300})
         microui.button(mu, "BTN1")
-        microui.button(mu, "BTN2")
-        microui.button(mu, "BTN3")
+        microui.layout_row(mu, {-70, -1}, 300)
+        microui.begin_panel(mu, "Panel", {.EXPANDED})
+        microui.layout_row(mu, {-1}, 200)
+        s := "Hello there my guise. What a fine day we have today, it's time to paint\n"
+        @static textbuf: [128]u8
+        for i in 0..<len(s) {
+            if i < 128 {
+                textbuf[i] = s[i]
+            }
+        }
+        @static len: int = len(textbuf)
+        microui.textbox(mu, textbuf[:], &len)
+        microui.text(mu, s)
+        microui.layout_row(mu, {-1})
+        microui.button(mu, "submit")
+        microui.end_panel(mu)
         microui.end_window(mu)
         
         microui.end(mu)
+
+
         
 
         render.vbuffer_reset(vbuff)
-        render.vbuffer_reset(vbuff2)
-        render.vbuffer_reset(tex_quad_idxbuff)
+        render.vbuffer_reset(idxbuff)
         
         
         
-        render_ui(app.ui_context, app, vbuff, tex_quad_idxbuff)
+        render_ui(app.ui_context, app, vbuff, idxbuff)
         
         render.present(app.render_info)
         
