@@ -682,6 +682,16 @@ draw_rect :: proc(ctx: ^Context, rect: Rect, color: Color) {
 	}
 }
 
+draw_gradient_rect :: proc(ctx: ^Context, rect: Rect, gradient: colors.Gradient) {
+	rect := rect
+	rect = intersect_rects(rect, get_clip_rect(ctx))
+	if rect.w > 0 && rect.h > 0 {
+		cmd := push_command(ctx, Command_Gradient)
+		cmd.rect = rect
+		cmd.gradient = gradient
+	}
+}
+
 draw_box :: proc(ctx: ^Context, rect: Rect, color: Color) {
 	draw_rect(ctx, Rect{rect.x+1,        rect.y,          rect.w-2, 1     }, color)
 	draw_rect(ctx, Rect{rect.x+1,        rect.y+rect.h-1, rect.w-2, 1     }, color)

@@ -33,9 +33,7 @@ slider_gradient :: proc(ctx: ^Context, value: ^Real, low, high: Real, gradient: 
 
 	/* draw base */
 	// draw_control_frame(ctx, id, base, .BASE, opt)
-    cmd := push_command(ctx, Command_Gradient)
-    cmd.rect = base
-    cmd.gradient = gradient
+    draw_gradient_rect(ctx, base, gradient)
 	/* draw thumb */
 	w := ctx.style.thumb_size
 	x := i32((v - low) * Real(base.w - w) / (high - low))
