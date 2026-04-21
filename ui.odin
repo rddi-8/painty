@@ -4,9 +4,11 @@ import sdl "vendor:sdl3"
 import "core:strings"
 import "core:log"
 import "core:fmt"
-import mu "microui"
 import "vendor:sdl3/ttf"
+
+import mu "microui"
 import "render"
+import "colors"
 
 Rect_List :: [dynamic]render.Rect_Instance
 
@@ -94,6 +96,26 @@ push_index :: proc(vf: ^Vertex_Feeder, index: i32) -> bool {
     return true
 }
 
+// push quad of vertices in order of: top_left, top_right, bottom_right, bottom_left
+push_quad :: proc(vf: ^Vertex_Feeder, verts: [4]render.Vertex_Data) -> bool {
+    start_idx: i32 = i32(vf.current_vertex)
+
+    push_vertex(vf, verts[0])
+    push_vertex(vf, verts[1])
+    push_vertex(vf, verts[2])
+    push_vertex(vf, verts[3])
+
+    push_index(vf, start_idx + 0)
+    push_index(vf, start_idx + 1)
+    push_index(vf, start_idx + 2)
+
+    push_index(vf, start_idx + 0)
+    push_index(vf, start_idx + 2)
+    push_index(vf, start_idx + 3)
+
+    return true
+}
+
 
 render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Buffer, ib: ^render.Virtual_Buffer) {
     mu_ctx := ui_ctx.mu_context
@@ -121,6 +143,8 @@ render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Bu
                 mu_draw_text(cmd.str, cmd.pos, cmd.color, &vf, app)
             case ^mu.Command_Icon:
                 mu_draw_icon(cmd.id, cmd.rect, cmd.color, &ui_ctx.rect_list)
+            case ^mu.Command_Gradient:
+                mu_draw_gradient(cmd.rect, cmd.gradient, &vf)
         }
     }
 
@@ -176,14 +200,16 @@ get_corner :: proc(rect: mu.Rect, corner: Corner) -> [2]f32 {
     }
 }
 
+UV_FILLED : [2]f32 : {-1, -1}
+
 mu_draw_rect :: proc(rect: mu.Rect, color: mu.Color, vf: ^Vertex_Feeder) {
     col: render.Color8 = {color.r, color.g, color.b, color.a}
 
     start_idx: i32 = i32(vf.current_vertex)
-    push_vertex(vf, {pos = get_corner(rect, .TL), uv = {-1,-1}, color = col})
-    push_vertex(vf, {pos = get_corner(rect, .TR), uv = {-1,-1}, color = col})
-    push_vertex(vf, {pos = get_corner(rect, .BR), uv = {-1,-1}, color = col})
-    push_vertex(vf, {pos = get_corner(rect, .BL), uv = {-1,-1}, color = col})
+    push_vertex(vf, {pos = get_corner(rect, .TL), uv = UV_FILLED, color = col})
+    push_vertex(vf, {pos = get_corner(rect, .TR), uv = UV_FILLED, color = col})
+    push_vertex(vf, {pos = get_corner(rect, .BR), uv = UV_FILLED, color = col})
+    push_vertex(vf, {pos = get_corner(rect, .BL), uv = UV_FILLED, color = col})
 
     push_index(vf, start_idx + 0)
     push_index(vf, start_idx + 1)
@@ -192,6 +218,32 @@ mu_draw_rect :: proc(rect: mu.Rect, color: mu.Color, vf: ^Vertex_Feeder) {
     push_index(vf, start_idx + 0)
     push_index(vf, start_idx + 2)
     push_index(vf, start_idx + 3)
+
+}
+
+interp_rect :: proc(rect: mu.Rect, ratio_h: f32, ratio_v: f32) -> [2]f32 {
+    return {f32(rect.x) + f32(rect.w)*ratio_h, -f32(rect.y) + -f32(rect.h)*ratio_v}
+}
+
+mu_draw_gradient :: proc(rect: mu.Rect, gradient: colors.Gradient, vf: ^Vertex_Feeder) {
+    grad := gradient.points
+    for i in 0..<len(grad)-1 {
+        qp: [4]render.Vertex_Data
+        qp[0].pos = interp_rect(rect, grad[i].position, 0)
+        qp[3].pos = interp_rect(rect, grad[i].position, 1)
+        qp[0].color = colors.to_col8(grad[i].color)
+        qp[3].color = colors.to_col8(grad[i].color)
+        qp[0].uv = UV_FILLED
+        qp[3].uv = UV_FILLED
+
+        qp[1].pos = interp_rect(rect, grad[i+1].position, 0)
+        qp[2].pos = interp_rect(rect, grad[i+1].position, 1)
+        qp[1].color = colors.to_col8(grad[i+1].color)
+        qp[2].color = colors.to_col8(grad[i+1].color)
+        qp[1].uv = UV_FILLED
+        qp[2].uv = UV_FILLED
+        push_quad(vf, qp)
+    }
 
 }
 

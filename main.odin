@@ -7,9 +7,10 @@ import "vendor:sdl3/ttf"
 import "core:mem"
 import "core:fmt"
 import sdl "vendor:sdl3"
-import "microui"
 
+import "microui"
 import "render"
+import "colors"
 
 WINDOW_W :: 800
 WINDOW_H :: 400
@@ -227,14 +228,70 @@ main :: proc() {
         microui.button(mu, "BTN1")
         microui.layout_row(mu, {-70, -1}, 300)
         microui.begin_panel(mu, "Panel", {.EXPANDED})
+        microui.layout_row(mu, {-1}, 32)
+
+        @static val: f32
+        gradient: colors.Gradient
+        gradient.points = {
+            {color = {1, 0, 0, 1}, position = 0},
+            {color = {0, 1, 0, 1}, position = 0.5},
+            {color = {0, 0, 1, 1}, position = 1},
+        }
+        microui.slider_gradient(mu, &val, 0, 10, gradient)
+        @static val2: f32
+        gradient2: colors.Gradient
+        pts: [10]colors.GradientPoint
+        c1: colors.RGB = colors.RGB(colors.to_linear({0.9, 0.1, 0.05}))
+        c2: colors.RGB = colors.RGB(colors.to_linear({0.0, 0.3, 0.8}))
+        cc1 := colors.linear_srgb_to_oklab(c1)
+        cc2 := colors.linear_srgb_to_oklab(c2)
+        for i in 0..<len(pts) {
+            d := f32(i)/f32(len(pts) - 1)
+            pts[i].position = d
+            col := colors.oklab_to_linear_srgb(
+                {
+                    cc1.L*(1-d) + cc2.L*d,
+                    cc1.a*(1-d) + cc2.a*d,
+                    cc1.b*(1-d) + cc2.b*d,
+                }
+            )
+            csrgb := colors.to_srgb(([3]f32)(col))
+            pts[i].color = {f16(csrgb.r), f16(csrgb.g), f16(csrgb.b), 1}
+        }
+        gradient2.points = pts[:]
+        microui.slider_gradient(mu, &val2, 0, 10, gradient2)
+
+        @static val3: f32
+        gradient3: colors.Gradient
+        pts3: [100]colors.GradientPoint
+        c13: colors.RGB = colors.RGB(colors.to_linear({0.9, 0.1, 0.05}))
+        c23: colors.RGB = colors.RGB(colors.to_linear({0.0, 0.3, 0.8}))
+        cc13 := colors.linear_srgb_to_oklab(c13)
+        cc23 := colors.linear_srgb_to_oklab(c23)
+        for i in 0..<len(pts3) {
+            d := f32(i)/f32(len(pts3) - 1)
+            pts3[i].position = d
+            col := colors.oklab_to_linear_srgb(
+                {
+                    cc13.L*(1-d) + cc23.L*d,
+                    cc13.a*(1-d) + cc23.a*d,
+                    cc13.b*(1-d) + cc23.b*d,
+                }
+            )
+            csrgb := colors.to_srgb(([3]f32)(col))
+            pts3[i].color = {f16(csrgb.r), f16(csrgb.g), f16(csrgb.b), 1}
+        }
+        gradient3.points = pts3[:]
+        microui.slider_gradient(mu, &val3, 0, 10, gradient3)
+
         microui.layout_row(mu, {-1}, 200)
         s := "Hello there my guise. What a fine day we have today, it's time to paint\n"
         @static textbuf: [128]u8
-        for i in 0..<len(s) {
-            if i < 128 {
-                textbuf[i] = s[i]
-            }
-        }
+        // for i in 0..<len(s) {
+        //     if i < 128 {
+        //         textbuf[i] = s[i]
+        //     }
+        // }
         @static len: int = len(textbuf)
         microui.textbox(mu, textbuf[:], &len)
         microui.text(mu, s)

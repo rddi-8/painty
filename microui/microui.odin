@@ -32,6 +32,8 @@ import "core:strconv"
 import "core:math"
 import textedit "core:text/edit"
 
+import "../colors"
+
 COMMAND_LIST_SIZE    :: #config(MICROUI_COMMAND_LIST_SIZE,    256 * 1024)
 ROOT_LIST_SIZE       :: #config(MICROUI_ROOT_LIST_SIZE,       32)
 CONTAINER_STACK_SIZE :: #config(MICROUI_CONTAINER_STACK_SIZE, 32)
@@ -141,6 +143,7 @@ Command_Variant :: union {
 	^Command_Jump,
 	^Command_Clip,
 	^Command_Rect,
+	^Command_Gradient,
 	^Command_Text,
 	^Command_Icon,
 }
@@ -161,6 +164,11 @@ Command_Rect :: struct {
 	rect:  Rect, 
 	color: Color,
 }
+Command_Gradient :: struct {
+	using command: Command,
+	rect: Rect,
+	gradient: colors.Gradient, 
+}
 Command_Text :: struct { 
 	using command: Command, 
 	font:  Font, 
@@ -174,6 +182,8 @@ Command_Icon :: struct {
 	id:    Icon, 
 	color: Color,
 }
+
+
 
 
 Layout_Type :: enum { NONE = 0, RELATIVE = 1, ABSOLUTE = 2 }
