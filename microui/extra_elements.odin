@@ -3,6 +3,7 @@ package microui
 import "core:math"
 import "core:fmt"
 import "../colors"
+import "../render"
 
 slider_gradient :: proc(ctx: ^Context, value: ^Real, low, high: Real, gradient: colors.Gradient, step: Real = 0.0, fmt_string: string = SLIDER_FMT, opt: Options = {.ALIGN_CENTER}) -> (res: Result_Set) {
 	last := value^
@@ -42,6 +43,31 @@ slider_gradient :: proc(ctx: ^Context, value: ^Real, low, high: Real, gradient: 
 	/* draw text  */
 	text_buf: [4096]byte
 	draw_control_text(ctx, fmt.bprintf(text_buf[:], fmt_string, v), base, .TEXT, opt)
+
+	return
+}
+
+icon :: proc(ctx: ^Context, id: string, icon: render.Texture_Tile, color: Color, opt: Options = {.ALIGN_CENTER}) -> (res: Result_Set) {
+
+	id := get_id(ctx, id)
+	base := layout_next(ctx)
+	min := math.min(base.w, base.h)
+	base.h = min
+	base.w = min
+
+
+	/* handle normal mode */
+	update_control(ctx, id, base, opt)
+
+	/* handle input */
+
+	/* clamp and store value, update res */
+
+
+	/* draw base */
+	// draw_control_frame(ctx, id, base, .BASE, opt)
+    draw_texture_rect(ctx, base, color, icon)
+	
 
 	return
 }

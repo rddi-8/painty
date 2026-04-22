@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:log"
 import "base:runtime"
 import "core:c"
@@ -11,18 +12,23 @@ import sdl "vendor:sdl3"
 import "microui"
 import "render"
 import "colors"
+import "math2"
 
 WINDOW_W :: 800
 WINDOW_H :: 400
+
+RES_FONT :: "fonts/DroidSans.ttf"
+RES_ICON_ATLAS :: "fonts/icons.png"
+
 
 Color :: [4]f32
 Vec2 :: [2]f32
 
 tracking_alloc: mem.Tracking_Allocator
 
+
 Text_Renderer :: struct {
     text_engine: ^ttf.TextEngine,
-    font: ^ttf.Font
 }
 
 Application :: struct {
@@ -35,6 +41,25 @@ Application :: struct {
 main_context: runtime.Context
 
 timer: u64
+
+col_f: f32
+
+map_wheel_col :: proc(pos: [2]f32) -> [4]f32 {
+    angle, l := math2.cart_to_polar(pos)
+    lab_c: colors.Lab
+    lab_c.L = col_f
+    lab_c.a = pos.x*0.3
+    lab_c.b = pos.y*0.3
+
+    col: [4]f32
+    col.rgb = ([3]f32)(colors.to_srgb(([3]f32)(colors.oklab_to_linear_srgb(lab_c))))
+    if (col.r < 0.0 || col.g < 0.0 || col.b < 0.0 || col.r >1 || col.g > 1 || col.b > 1){
+        return {0.5,0.5,0.5, 1.0}
+    }
+    col.a = 1
+
+    return col
+}
 
 main :: proc() {
     mem.tracking_allocator_init(&tracking_alloc, context.allocator)
@@ -54,6 +79,8 @@ main :: proc() {
         log.debugf("SDL {} [{}]: {}", category, priority, message)
     }, nil)
     
+    //TODO remove
+    test_mesh := render.gen_circle(8,3, map_wheel_col)
     
     app := new(Application)
     init_app(app, WINDOW_W, WINDOW_H, "Painty")
@@ -115,7 +142,7 @@ main :: proc() {
  
     vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 30 * mem.Megabyte)
     
-    idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 10000)
+    idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 30 * mem.Megabyte)
       
     
     ww, wh :c.int
@@ -222,6 +249,22 @@ main :: proc() {
         microui.button(mu, "BTN1")
         microui.button(mu, "BTN2")
         microui.button(mu, "BTN3")
+        microui.layout_height(mu, 30)
+        ll := microui.layout_next(mu)
+        microui.layout_set_next(mu, ll, false)
+        microui.icon(mu, "iconn2", app.ui_context.icons[.PICKER_CIRCLE], {255, 200, 50, 255})
+        microui.layout_set_next(mu, ll, false)
+        microui.icon(mu, "iconn", app.ui_context.icons[.PICKER_RING], {255, 255, 255, 255})
+        microui.layout_height(mu, 20)
+        microui.icon(mu, "iconn", app.ui_context.icons[.BURGER], {255, 255, 255, 255})
+        microui.icon(mu, "iconn", app.ui_context.icons[.BRUSH], {255, 255, 255, 255})
+        microui.end_window(mu)
+
+        microui.begin_window(mu, "Colooor", {200, 100, 300, 300})
+        microui.slider(mu, &col_f, 0, 1)
+        microui.layout_set_next(mu, {0,0,300,300}, true)
+        test_mesh = render.gen_circle(256, 64, map_wheel_col)
+        microui.draw_mesh(mu, microui.layout_next(mu), &test_mesh)
         microui.end_window(mu)
         
         microui.begin_window(mu, "Hehhh2", {300, 10, 300, 300})
@@ -315,9 +358,7 @@ main :: proc() {
         render.present(app.render_info)
         
 
-        clear(&app.ui_context.text_seq)
-
-        // fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
+        fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
         free_all(context.temp_allocator)
     }
 
@@ -329,8 +370,11 @@ main :: proc() {
 }
 
 init_app :: proc(application: ^Application, window_w, window_h: int, name: cstring) {
+    
     if !sdl.Init({.VIDEO}) do print_sdl_err()
     if !ttf.Init() do print_sdl_err()
+
+    
 
     application.window = sdl.CreateWindow(name, c.int(window_w), c.int(window_h), {.RESIZABLE})
     if application.window == nil do print_sdl_err()
@@ -340,10 +384,10 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
 
     application.text_renderer = new(Text_Renderer)
     application.text_renderer.text_engine = ttf.CreateGPUTextEngine(application.render_info.device)
-    application.text_renderer.font = ttf.OpenFont("fonts/DroidSans.ttf", 16.0)
+
    
     application.ui_context = new(Ui_Context)
-    ui_init(application.ui_context)
+    ui_init(application.ui_context, application.render_info)
 }
 
 print_sdl_err :: proc() {

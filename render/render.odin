@@ -13,7 +13,7 @@ import "core:math"
 import "core:math/linalg"
 import "shadercross"
 
-DEBUG : bool : false
+DEBUG : bool : true
 
 VERTEX_BUFFER_SIZE : u32 :      100 * mem.Megabyte
 TRANSFER_BUFFER_SIZE : u32 :    100 * mem.Megabyte
@@ -30,12 +30,10 @@ Matrix3 :: linalg.Matrix3f32
 Matrix3align :: matrix[4,3]f32
 Color :: linalg.Vector4f32
 
-Tile :: struct {
-        pos: Vec2,
-        size: Vec2,
-        angle: f32,
-        texture_id: int
-    }
+Rect :: struct {
+    pos: [2]f32,
+    size: [2]f32,
+}
 Vertex_Data :: struct {
     pos: Vec2,
     uv: Vec2,
@@ -164,6 +162,7 @@ setup_samplers :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info) {
             address_mode_u = .REPEAT,
             address_mode_v = .REPEAT,
             mipmap_mode = .LINEAR,
+            max_lod = 10
         }
     )
 }
@@ -294,7 +293,7 @@ present :: proc(render_info: ^Render_Info) {
 
 }
 
-render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, num_indices: u32, vbuffer: ^Buffer_Portion, idxbuffer: ^Buffer_Portion) {
+render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, icon_tex: ^sdl.GPUTexture, num_indices: u32, vbuffer: ^Buffer_Portion, idxbuffer: ^Buffer_Portion) {
     ok: bool
 
 
@@ -333,8 +332,12 @@ render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, num_
             {
                 texture = tex,
                 sampler = render_info.linear_sampler
+            },
+            {
+                texture = icon_tex,
+                sampler = render_info.linear_sampler
             }
-        }), 1)
+        }), 2)
     
     sizew := render_info.render_target_info.width
     sizeh := render_info.render_target_info.height
@@ -368,11 +371,11 @@ Texture_Type :: enum {
     COLOR
 }
 
-load_texture :: proc(device: ^sdl.GPUDevice, file: cstring, type: Texture_Type = .COLOR) -> ^sdl.GPUTexture {
+load_texture :: proc(device: ^sdl.GPUDevice, file: cstring, type: Texture_Type = .COLOR, mip_levels: u32 = 1) -> (^sdl.GPUTexture, sdl.GPUTextureCreateInfo) {
     img := image.Load(file)
     if img == nil {
         log.warnf("Couldn't load image \"%s\"", file)
-        return nil
+        return nil, {}
     }
     convert_format: sdl.PixelFormat
     texture_format: sdl.GPUTextureFormat
@@ -385,18 +388,22 @@ load_texture :: proc(device: ^sdl.GPUDevice, file: cstring, type: Texture_Type =
     w := u32(img.w)
     h := u32(img.h)
 
-    tex := sdl.CreateGPUTexture(
-        device,
-        {
+    usage: sdl.GPUTextureUsageFlags
+    usage |= {.SAMPLER}
+    if (mip_levels > 1) {
+        usage |= {.COLOR_TARGET}
+    }
+
+    tex_info := sdl.GPUTextureCreateInfo{
             format = texture_format,
             width = w,
             height = h,
             layer_count_or_depth = 1,
-            num_levels = 1,
+            num_levels = mip_levels,
             type = .D2,
-            usage = {.SAMPLER}
+            usage = usage,
         }
-    )
+    tex := sdl.CreateGPUTexture(device, tex_info)
 
     tex_size := sdl.CalculateGPUTextureFormatSize(texture_format, w, h, 1)
 
@@ -428,7 +435,13 @@ load_texture :: proc(device: ^sdl.GPUDevice, file: cstring, type: Texture_Type =
     sdl.EndGPUCopyPass(copy_pass)
     ok := sdl.SubmitGPUCommandBuffer(cmdbuf); assert(ok)
     sdl.ReleaseGPUTransferBuffer(device, transfer_buffer)
-    return tex
+
+    if (mip_levels > 1) {
+        gen_mips := sdl.AcquireGPUCommandBuffer(device)
+        sdl.GenerateMipmapsForGPUTexture(gen_mips, tex)
+        ok = sdl.SubmitGPUCommandBuffer(gen_mips); assert(ok)
+    }
+    return tex, tex_info
 }
 
 align_matrix3 :: proc(mat: Matrix3) -> (out: Matrix3align) {

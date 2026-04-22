@@ -25,6 +25,8 @@ An Odin-native source port of [[ rxi's microui ; https://github.com/rxi/microui 
 */
 package microui
 
+import sdl "vendor:sdl3"
+import "core:reflect"
 import "core:fmt"
 import "core:sort"
 import "core:strings"
@@ -33,6 +35,7 @@ import "core:math"
 import textedit "core:text/edit"
 
 import "../colors"
+import "../render"
 
 COMMAND_LIST_SIZE    :: #config(MICROUI_COMMAND_LIST_SIZE,    256 * 1024)
 ROOT_LIST_SIZE       :: #config(MICROUI_ROOT_LIST_SIZE,       32)
@@ -144,8 +147,10 @@ Command_Variant :: union {
 	^Command_Clip,
 	^Command_Rect,
 	^Command_Gradient,
+	^Command_Texture,
 	^Command_Text,
 	^Command_Icon,
+	^Command_Mesh
 }
 Command :: struct { 
 	variant: Command_Variant,
@@ -164,6 +169,13 @@ Command_Rect :: struct {
 	rect:  Rect, 
 	color: Color,
 }
+Command_Texture :: struct {
+	using command: Command,
+	rect: Rect,
+	color: Color,
+	texture: ^sdl.GPUTexture,
+	uv_rect: render.Rect,
+}
 Command_Gradient :: struct {
 	using command: Command,
 	rect: Rect,
@@ -181,6 +193,11 @@ Command_Icon :: struct {
 	rect:  Rect, 
 	id:    Icon, 
 	color: Color,
+}
+Command_Mesh :: struct {
+	using command: Command,
+	rect: Rect,
+	mesh: ^render.UI_Mesh
 }
 
 
@@ -682,6 +699,16 @@ draw_rect :: proc(ctx: ^Context, rect: Rect, color: Color) {
 	}
 }
 
+draw_mesh :: proc(ctx: ^Context, rect: Rect, mesh: ^render.UI_Mesh) {
+	rect := rect
+	rect = intersect_rects(rect, get_clip_rect(ctx))
+	if rect.w > 0 && rect.h > 0 {
+		cmd := push_command(ctx, Command_Mesh)
+		cmd.rect = rect
+		cmd.mesh = mesh
+	}
+}
+
 draw_gradient_rect :: proc(ctx: ^Context, rect: Rect, gradient: colors.Gradient) {
 	rect := rect
 	rect = intersect_rects(rect, get_clip_rect(ctx))
@@ -689,6 +716,18 @@ draw_gradient_rect :: proc(ctx: ^Context, rect: Rect, gradient: colors.Gradient)
 		cmd := push_command(ctx, Command_Gradient)
 		cmd.rect = rect
 		cmd.gradient = gradient
+	}
+}
+
+draw_texture_rect :: proc(ctx: ^Context, rect: Rect, color: Color, tile: render.Texture_Tile) {
+	rect := rect
+	rect = intersect_rects(rect, get_clip_rect(ctx))
+	if rect.w > 0 && rect.h > 0 {
+		cmd := push_command(ctx, Command_Texture)
+		cmd.rect = rect
+		cmd.color = color
+		cmd.texture = tile.texture
+		cmd.uv_rect = tile.rect
 	}
 }
 

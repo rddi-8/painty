@@ -49,8 +49,19 @@ color_to_col8 :: proc(in_col: Color) -> Color8 {
     }
 }
 
+@(require_results)
+col32_to_col8 :: proc(in_col: Color32) -> Color8 {
+    return {
+        u8(in_col.r * 255),
+        u8(in_col.g * 255),
+        u8(in_col.b * 255),
+        u8(in_col.a * 255),
+    }
+}
+
 to_col8 :: proc {
     color_to_col8,
+    col32_to_col8,
 }
 
 @(require_results)
