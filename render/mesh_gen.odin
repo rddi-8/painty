@@ -60,10 +60,10 @@ mesh_fill_uv :: proc(mesh: ^UI_Mesh, uv: [2]f32) {
     }
 }
 
-gen_color_map :: proc(in_coord: [2]f32) -> [4]f32
+gen_color_map :: proc "contextless" (in_coord: [2]f32) -> [4]f32
 
 @(private="file")
-_default_color_map :: proc(in_coord: [2]f32) -> [4]f32 {
+_default_color_map :: proc "contextless" (in_coord: [2]f32) -> [4]f32 {
     return {in_coord.x, in_coord.y, 0, 1}
 }
 

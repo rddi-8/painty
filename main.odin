@@ -44,7 +44,7 @@ timer: u64
 
 col_f: f32
 
-map_wheel_col :: proc(pos: [2]f32) -> [4]f32 {
+map_wheel_col :: proc "contextless" (pos: [2]f32) -> [4]f32 {
     angle, l := math2.cart_to_polar(pos)
     lab_c: colors.Lab
     lab_c.L = col_f
@@ -53,6 +53,24 @@ map_wheel_col :: proc(pos: [2]f32) -> [4]f32 {
 
     col: [4]f32
     col.rgb = ([3]f32)(colors.to_srgb(([3]f32)(colors.oklab_to_linear_srgb(lab_c))))
+    if (col.r < 0.0 || col.g < 0.0 || col.b < 0.0 || col.r >1 || col.g > 1 || col.b > 1){
+        return {0.5,0.5,0.5, 1.0}
+    }
+    col.a = 1
+
+    return col
+}
+
+map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
+    angle, l := math2.cart_to_polar(pos)
+    okhsl: colors.HSL
+    okhsl.l = col_f
+    okhsl.h = angle / (math.PI*2)
+    okhsl.s = l*0.99
+
+
+    col: [4]f32
+    col.rgb = ([3]f32)(colors.okhsl_to_srgb(okhsl))
     if (col.r < 0.0 || col.g < 0.0 || col.b < 0.0 || col.r >1 || col.g > 1 || col.b > 1){
         return {0.5,0.5,0.5, 1.0}
     }
@@ -263,7 +281,7 @@ main :: proc() {
         microui.begin_window(mu, "Colooor", {200, 100, 300, 300})
         microui.slider(mu, &col_f, 0, 1)
         microui.layout_set_next(mu, {0,0,300,300}, true)
-        test_mesh = render.gen_circle(256, 64, map_wheel_col)
+        test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
         microui.draw_mesh(mu, microui.layout_next(mu), &test_mesh)
         microui.end_window(mu)
         
