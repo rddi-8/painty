@@ -29,7 +29,7 @@ PointerInput :: struct {
     released_buttons: Mouse_Buttons,
 }
 
-Simple_Action_Enum :: enum {
+Action_Simple_Enum :: enum {
     PRINT_ACTION,
     PICK_COLOR,
     FLIP_CANVAS,
@@ -39,38 +39,60 @@ Simple_Action_Enum :: enum {
     QUIT,
 }
 Action_Simple :: struct {
-    type: Simple_Action_Enum,
+    type: Action_Simple_Enum,
 }
 
-Held_Action_Enum :: enum {
+Action_Held_Enum :: enum {
     EYE_DROPPER,
     DRAG_BRUSH_SIZE,
     DRAG_BRUSH_OPACITY
 }
-Held_Action :: struct {
-    type: Held_Action_Enum,
+Action_Held :: struct {
+    type: Action_Held_Enum,
     up: bool,
 }
-Currently_Held_Actions :: bit_set[Held_Action_Enum] 
+Currently_Held_Actions :: bit_set[Action_Held_Enum] 
 
-Parameter_Action_Enum :: enum {
+Action_Parameter_Enum :: enum {
     ROTATE_CANVAS,
     SET_TOOL_OPACITY
 }
-Parameter_Action :: struct {
-    type: Parameter_Action_Enum,
+Action_Parameter :: struct {
+    type: Action_Parameter_Enum,
     value: f32
 }
 
-ToolToggle_Action :: struct {
-    tool_id: int
+Action_Color_Enum :: enum {
+    SET_FG_COL,
+    SET_BG_COL,
+}
+
+Action_Color :: struct {
+    type: Action_Color_Enum,
+    color: Color
+}
+
+Action_Canvas_Location_Enum :: enum {
+    MOVE_TOOL,
+    BRUSH_TOUCH,
+    BRUSH_ALT
+}
+
+Action_Canvas_Location :: struct {
+    type: Action_Canvas_Location_Enum,
+    location: [2]f32
+}
+
+Action_ToolToggle :: struct {
+    tool_id: string
 }
 
 Action :: union {
     Action_Simple,
-    Parameter_Action,
-    Held_Action,
-    ToolToggle_Action
+    Action_Parameter,
+    Action_Canvas_Location,
+    Action_Held,
+    Action_ToolToggle
 }
 
 Modifier_Keys_Enum :: enum {
@@ -80,7 +102,7 @@ Modifier_Keys_Enum :: enum {
 }
 Modifier_Keys :: bit_set[Modifier_Keys_Enum]
 
-Key_Input_Event :: struct {
+Input_Event_Key :: struct {
     key: sdl.Scancode,
     mod: sdl.Keymod,
     ignore_mod: bool,
@@ -88,14 +110,55 @@ Key_Input_Event :: struct {
     ctx: InputContext
 }
 
-Key_Bind :: struct {
-    key_event: Key_Input_Event,
+Input_Event_Mouse :: struct {
+    button: Mouse_Button,
+    up: bool,
+    ctx: InputContext
+}
+
+Input_Event_Pen :: struct {
+    button: Pen_Button,
+    up: bool,
+    ctx: InputContext
+}
+
+Bind_Key :: struct {
+    key_event: Input_Event_Key,
     action: Action
 }
 
+Bind_Mouse :: struct {
+    mouse_event: Input_Event_Mouse,
+    action: Action
+}
 
-Key_Bind_Map :: [len(sdl.Scancode)][dynamic]Key_Bind
+Bind_Pen :: struct {
+    pen_event: Input_Event_Pen,
+    action: Action
+}
 
-add_keybind :: proc(kb_map: ^Key_Bind_Map, key_input: Key_Input_Event, action: Action) {
-    append(&kb_map[key_input.key], Key_Bind{key_event = key_input, action = action})
+Action_Binds :: struct {
+    key_binds: Key_Bind_Map,
+    mouse_binds: Mouse_Bind_Map,
+    pen_binds: Pen_Bind_Map
+}
+
+Key_Bind_Map :: distinct [len(sdl.Scancode)][dynamic]Bind_Key
+Mouse_Bind_Map :: distinct [len(Mouse_Button)][dynamic]Bind_Mouse
+Pen_Bind_Map :: distinct [len(Pen_Button)][dynamic]Bind_Pen
+
+add_keybind_kb :: proc(kb_map: ^Key_Bind_Map, key_input: Input_Event_Key, action: Action) {
+    append(&kb_map[key_input.key], Bind_Key{key_event = key_input, action = action})
+}
+add_keybind_mouse :: proc(kb_map: ^Mouse_Bind_Map, mouse_input: Input_Event_Mouse, action: Action) {
+    append(&kb_map[mouse_input.button], Bind_Mouse{mouse_event = mouse_input, action = action})
+}
+add_keybind_pen :: proc(kb_map: ^Pen_Bind_Map, pen_input: Input_Event_Pen, action: Action) {
+    append(&kb_map[pen_input.button], Bind_Pen{pen_event = pen_input, action = action})
+}
+
+add_keybind :: proc{
+    add_keybind_kb,
+    add_keybind_mouse,
+    add_keybind_pen,
 }

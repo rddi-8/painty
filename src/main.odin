@@ -14,6 +14,8 @@ import "render"
 import "color"
 import "math2"
 
+DEBUG_PRINT :: false
+
 WINDOW_W :: 800
 WINDOW_H :: 400
 
@@ -103,53 +105,8 @@ main :: proc() {
     app := new(Application)
     init_app(app, WINDOW_W, WINDOW_H, "Painty")
 
-    keybind_map := new(Key_Bind_Map)
-
-    add_keybind(keybind_map,
-        {
-            ctx = .PAINTING,
-            key = .ESCAPE,
-        },
-        Action_Simple{type = .QUIT})
-    add_keybind(keybind_map,
-        {
-            ctx = .PAINTING,
-            key = .LALT,
-            mod = {.LALT}
-        },
-        Held_Action{type = .EYE_DROPPER})
-    
-    add_keybind(keybind_map,
-        {
-            ctx = .PAINTING,
-            key = .H,
-            use_repeat = true,
-            ignore_mod = true,
-        },
-        Action_Simple{type = .FLIP_CANVAS})
-
-    add_keybind(keybind_map,
-        {
-            ctx = .PAINTING,
-            key = .C,
-            mod = {.LCTRL, .LSHIFT}
-        },
-        Action_Simple{type = .FLIP_CANVAS})
-
-    add_keybind(keybind_map,
-        {
-            ctx = .PAINTING,
-            key = .R,
-        },
-        Parameter_Action{type = .ROTATE_CANVAS, value = 10})
-
-    add_keybind(keybind_map,
-        {
-            ctx = .PAINTING,
-            key = .R,
-            mod = {.LCTRL}
-        },
-        Parameter_Action{type = .ROTATE_CANVAS, value = -10})
+    action_binds := new(Action_Binds)
+    create_default_keybinds(action_binds)
     
 
     current_context := InputContext.PAINTING
@@ -172,6 +129,11 @@ main :: proc() {
         // fmt.printfln("%.2f ms", f64(last_frame)/1000000)
         timer = sdl.GetTicksNS()
 
+        //MARK: EVENTS
+        keybind_map := action_binds.key_binds
+        mouse_map := action_binds.mouse_binds
+        pen_map := action_binds.pen_binds
+
         ev: sdl.Event
         for sdl.PollEvent(&ev) {
             #partial switch ev.type {
@@ -182,7 +144,7 @@ main :: proc() {
                 case .QUIT:
                     log.debug("SDL QUIT")
                     break main_loop
-                case .KEY_DOWN:
+                case .KEY_DOWN: //MARK: key down
                     keymod := ev.key.mod
                     keymod = keymod - {.NUM, .CAPS, .MODE, .SCROLL}
                     if len(keybind_map[ev.key.scancode]) > 0 {
@@ -198,18 +160,18 @@ main :: proc() {
                             }
                         }
                     }
-                case .KEY_UP:
+                case .KEY_UP: //MARK: key up
                     if len(keybind_map[ev.key.scancode]) > 0 {
                         for kb in keybind_map[ev.key.scancode] {
-                            if a, ok := kb.action.(Held_Action); ok {
+                            if a, ok := kb.action.(Action_Held); ok {
                                 a.up = true
                                 append(&actions, a)
                             }
                         }
                     }
-                case .MOUSE_MOTION:
+                case .MOUSE_MOTION: //MARK: mouse motion
                     microui.input_mouse_move(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y))
-                case .MOUSE_BUTTON_UP:
+                case .MOUSE_BUTTON_UP: //MARK: mb up
                     mu_mouse: microui.Mouse
                     switch ev.button.button {
                         case sdl.BUTTON_LEFT:
@@ -220,7 +182,30 @@ main :: proc() {
                             mu_mouse = microui.Mouse.MIDDLE
                     }
                     microui.input_mouse_up(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
-                case .MOUSE_BUTTON_DOWN:
+                    
+                    mbtn: Maybe(Mouse_Button) = nil
+                    switch ev.button.button {
+                        case sdl.BUTTON_LEFT:
+                            mbtn = .LEFT
+                        case sdl.BUTTON_RIGHT:
+                            mbtn = .RIGHT
+                        case sdl.BUTTON_MIDDLE:
+                            mbtn = .MIDDLE
+                        case sdl.BUTTON_X1:
+                            mbtn = .MBT_4
+                        case sdl.BUTTON_X2:
+                            mbtn = .MBT_5
+                    }
+
+                    if mbtn != nil && len(mouse_map[mbtn.(Mouse_Button)]) > 0 {
+                        for mb in mouse_map[mbtn.(Mouse_Button)] {
+                            if mb.mouse_event.up == true {
+                                append(&actions, mb.action)
+                            }
+                        }
+                    }
+
+                case .MOUSE_BUTTON_DOWN: //MARK: mb down
                     mu_mouse: microui.Mouse
                     switch ev.button.button {
                         case sdl.BUTTON_LEFT:
@@ -231,7 +216,28 @@ main :: proc() {
                             mu_mouse = microui.Mouse.MIDDLE
                     }
                     microui.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
+                    
+                    mbtn: Maybe(Mouse_Button) = nil
+                    switch ev.button.button {
+                        case sdl.BUTTON_LEFT:
+                            mbtn = .LEFT
+                        case sdl.BUTTON_RIGHT:
+                            mbtn = .RIGHT
+                        case sdl.BUTTON_MIDDLE:
+                            mbtn = .MIDDLE
+                        case sdl.BUTTON_X1:
+                            mbtn = .MBT_4
+                        case sdl.BUTTON_X2:
+                            mbtn = .MBT_5
+                    }
 
+                    if mbtn != nil && len(mouse_map[mbtn.(Mouse_Button)]) > 0 {
+                        for mb in mouse_map[mbtn.(Mouse_Button)] {
+                            if mb.mouse_event.up == false {
+                                append(&actions, mb.action)
+                            }
+                        }
+                    }
             }
         }
 
@@ -243,11 +249,13 @@ main :: proc() {
                         case .QUIT:
                             break main_loop
                     }
-                case Parameter_Action:
+                case Action_Parameter:
                     log.debug("Parameter Action:", a.type, "value:", a.value)
-                case ToolToggle_Action:
+                case Action_Canvas_Location:
+                    log.debug("Canvas Location Action:", a.type, "loc:", a.location)
+                case Action_ToolToggle:
                     log.debug("Toggle Tool Action:", "tool_id:", a.tool_id)
-                case Held_Action:
+                case Action_Held:
                     if !a.up {
                         held_actions += {a.type}
                     }
@@ -263,103 +271,30 @@ main :: proc() {
         
         mu := app.ui_context.mu_context
         microui.begin(mu)
-        microui.begin_window(mu, "Hehhh", {10, 10, 200, 400})
-        microui.button(mu, "BTN1")
-        microui.button(mu, "BTN2")
-        microui.button(mu, "BTN3")
-        microui.layout_height(mu, 30)
-        ll := microui.layout_next(mu)
-        microui.layout_set_next(mu, ll, false)
-        microui.icon(mu, "iconn2", app.ui_context.icons[.PICKER_CIRCLE], {255, 200, 50, 255})
-        microui.layout_set_next(mu, ll, false)
-        microui.icon(mu, "iconn", app.ui_context.icons[.PICKER_RING], {255, 255, 255, 255})
-        microui.layout_height(mu, 20)
-        microui.icon(mu, "iconn", app.ui_context.icons[.BURGER], {255, 255, 255, 255})
-        microui.icon(mu, "iconn", app.ui_context.icons[.BRUSH], {255, 255, 255, 255})
-        microui.end_window(mu)
+        // microui.begin_window(mu, "Hehhh", {10, 10, 200, 400})
+        // microui.button(mu, "BTN1")
+        // microui.button(mu, "BTN2")
+        // microui.button(mu, "BTN3")
+        // microui.layout_height(mu, 30)
+        // ll := microui.layout_next(mu)
+        // microui.layout_set_next(mu, ll, false)
+        // microui.icon(mu, "iconn2", app.ui_context.icons[.PICKER_CIRCLE], {255, 200, 50, 255})
+        // microui.layout_set_next(mu, ll, false)
+        // microui.icon(mu, "iconn", app.ui_context.icons[.PICKER_RING], {255, 255, 255, 255})
+        // microui.layout_height(mu, 20)
+        // microui.icon(mu, "iconn", app.ui_context.icons[.BURGER], {255, 255, 255, 255})
+        // microui.icon(mu, "iconn", app.ui_context.icons[.BRUSH], {255, 255, 255, 255})
+        // microui.end_window(mu)
 
-        microui.begin_window(mu, "Colooor", {200, 100, 300, 300})
-        microui.slider(mu, &col_f, 0, 1)
-        microui.layout_set_next(mu, {0,0,300,300}, true)
-        test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
-        microui.draw_mesh(mu, microui.layout_next(mu), &test_mesh)
+        if microui.begin_window(mu, "Colooor", {200, 100, 300, 300}) {
+            microui.slider(mu, &col_f, 0, 1)
+            microui.layout_set_next(mu, {0,0,300,300}, true)
+            test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
+            microui.draw_mesh(mu, microui.layout_next(mu), &test_mesh)
+        }
         microui.end_window(mu)
         
-        microui.begin_window(mu, "Hehhh2", {300, 10, 300, 300})
-        microui.button(mu, "BTN1")
-        microui.layout_row(mu, {-70, -1}, 300)
-        microui.begin_panel(mu, "Panel", {.EXPANDED})
-        microui.layout_row(mu, {-1}, 32)
-
-        @static val: f32
-        gradient: color.Gradient
-        gradient.points = {
-            {color = {1, 0, 0, 1}, position = 0},
-            {color = {0, 1, 0, 1}, position = 0.5},
-            {color = {0, 0, 1, 1}, position = 1},
-        }
-        microui.slider_gradient(mu, &val, 0, 10, gradient)
-        @static val2: f32
-        gradient2: color.Gradient
-        pts: [10]color.GradientPoint
-        c1: color.RGB = color.RGB(color.to_linear({0.9, 0.1, 0.05}))
-        c2: color.RGB = color.RGB(color.to_linear({0.0, 0.3, 0.8}))
-        cc1 := color.linear_srgb_to_oklab(c1)
-        cc2 := color.linear_srgb_to_oklab(c2)
-        for i in 0..<len(pts) {
-            d := f32(i)/f32(len(pts) - 1)
-            pts[i].position = d
-            col := color.oklab_to_linear_srgb(
-                {
-                    cc1.L*(1-d) + cc2.L*d,
-                    cc1.a*(1-d) + cc2.a*d,
-                    cc1.b*(1-d) + cc2.b*d,
-                }
-            )
-            csrgb := color.to_srgb(([3]f32)(col))
-            pts[i].color = {f16(csrgb.r), f16(csrgb.g), f16(csrgb.b), 1}
-        }
-        gradient2.points = pts[:]
-        microui.slider_gradient(mu, &val2, 0, 10, gradient2)
-
-        @static val3: f32
-        gradient3: color.Gradient
-        pts3: [100]color.GradientPoint
-        c13: color.RGB = color.RGB(color.to_linear({0.9, 0.1, 0.05}))
-        c23: color.RGB = color.RGB(color.to_linear({0.0, 0.3, 0.8}))
-        cc13 := color.linear_srgb_to_oklab(c13)
-        cc23 := color.linear_srgb_to_oklab(c23)
-        for i in 0..<len(pts3) {
-            d := f32(i)/f32(len(pts3) - 1)
-            pts3[i].position = d
-            col := color.oklab_to_linear_srgb(
-                {
-                    cc13.L*(1-d) + cc23.L*d,
-                    cc13.a*(1-d) + cc23.a*d,
-                    cc13.b*(1-d) + cc23.b*d,
-                }
-            )
-            csrgb := color.to_srgb(([3]f32)(col))
-            pts3[i].color = {f16(csrgb.r), f16(csrgb.g), f16(csrgb.b), 1}
-        }
-        gradient3.points = pts3[:]
-        microui.slider_gradient(mu, &val3, 0, 10, gradient3)
-
-        microui.layout_row(mu, {-1}, 200)
-        s := "Hello there my guise. What a fine day we have today, it's time to paint\n"
-        @static textbuf: [128]u8
-        // for i in 0..<len(s) {
-        //     if i < 128 {
-        //         textbuf[i] = s[i]
-        //     }
-        // }
-        @static len: int = len(textbuf)
-        microui.textbox(mu, textbuf[:], &len)
-        microui.text(mu, s)
-        microui.layout_row(mu, {-1})
-        microui.button(mu, "submit")
-        microui.end_panel(mu)
-        microui.end_window(mu)
+        
         
         microui.end(mu)
 
@@ -375,8 +310,8 @@ main :: proc() {
         
         render.present(app.render_info)
         
-
-        fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
+        when DEBUG_PRINT do fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
+        
         free_all(context.temp_allocator)
     }
 
