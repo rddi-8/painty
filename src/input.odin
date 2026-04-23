@@ -87,12 +87,17 @@ Action_ToolToggle :: struct {
     tool_id: string
 }
 
+Action_BoolToggle :: struct {
+    value: ^bool
+}
+
 Action :: union {
     Action_Simple,
     Action_Parameter,
     Action_Canvas_Location,
     Action_Held,
-    Action_ToolToggle
+    Action_ToolToggle,
+    Action_BoolToggle
 }
 
 Modifier_Keys_Enum :: enum {

@@ -1,5 +1,6 @@
 package main
 
+import "core:container/avl"
 import sdl "vendor:sdl3"
 import "core:strings"
 import "core:log"
@@ -17,8 +18,15 @@ Icons :: enum {
     PICKER_RING,
     PICKER_CIRCLE,
     BURGER,
-    BRUSH
+    BRUSH,
+    MU_CLOSE,
+    MU_COLLAPSED,
+    MU_EXPANDED,
+    MU_CHECK,
+    MU_RESIZE,
 }
+
+MU_CLOSE, MU_COLLAPSED, MU_EXPANDED, MU_CHECK, MU_RESIZE: render.Texture_Tile
 
 Ui_Context :: struct {
     mu_context: ^mu.Context,
@@ -50,6 +58,18 @@ ui_init :: proc(ui_ctx: ^Ui_Context, render_info: ^render.Render_Info) {
     ui_ctx.icons[.PICKER_CIRCLE] = render.fetch_tile(atlas, 2, 0)
     ui_ctx.icons[.BURGER] = render.fetch_tile(atlas, 3, 0)
     ui_ctx.icons[.BRUSH] = render.fetch_tile(atlas, 4, 0)
+
+    ui_ctx.icons[.MU_CLOSE] = render.fetch_tile(atlas, 0, 1)
+    ui_ctx.icons[.MU_COLLAPSED] = render.fetch_tile(atlas, 1, 1)
+    ui_ctx.icons[.MU_EXPANDED] = render.fetch_tile(atlas, 2, 1)
+    ui_ctx.icons[.MU_RESIZE] = render.fetch_tile(atlas, 3, 1)
+    ui_ctx.icons[.MU_CHECK] = render.fetch_tile(atlas, 4, 1)
+
+    MU_CLOSE = ui_ctx.icons[.MU_CLOSE]
+    MU_COLLAPSED = ui_ctx.icons[.MU_COLLAPSED]
+    MU_EXPANDED = ui_ctx.icons[.MU_EXPANDED]
+    MU_RESIZE = ui_ctx.icons[.MU_RESIZE]
+    MU_CHECK = ui_ctx.icons[.MU_CHECK]
 
 
     list := make([dynamic]render.Rect_Instance)
@@ -86,9 +106,17 @@ Vertex_Feeder :: struct {
     index_count: int,
 
     atlas: ^sdl.GPUTexture,
+
+    context_switches: [dynamic]render.Contex_Switch,
+    last_switch: int,
 }
 
 
+
+push_scissor :: proc(vf: ^Vertex_Feeder, rect: sdl.Rect) {
+    append(&vf.context_switches, render.Contex_Switch{num_primitives = vf.index_count - vf.last_switch, scissor = rect})
+    vf.last_switch = vf.index_count
+}
 
 push_vertex :: proc(vf: ^Vertex_Feeder, vertex: render.Vertex_Data) -> bool {
     if (vf.current_vertex >= vf.max_vert_capacity) {
@@ -139,6 +167,7 @@ render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Bu
 
     raw_tb := sdl.MapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff, false)
     vf: Vertex_Feeder
+    defer delete(vf.context_switches)
     vf.vertices = ([^]render.Vertex_Data)(raw_tb)
     vf.current_vertex = 0
     indices_size: int = size_of(u32) * 100000
@@ -151,27 +180,36 @@ render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Bu
     null_icon := app.ui_context.icons[.NULL]
     UV_FILLED = -(null_icon.rect.pos + null_icon.rect.size/2)
 
+    cmd_count: int = 0
 
     cmd_backing: ^mu.Command
     for cmd_variant in mu.next_command_iterator(mu_ctx, &cmd_backing) {
+        cmd_count += 1
         #partial switch cmd in cmd_variant {
             case ^mu.Command_Rect:
                 mu_draw_rect(cmd.rect, cmd.color, &vf)
             case ^mu.Command_Text:
                 mu_draw_text(cmd.str, cmd.pos, cmd.color, cmd.font, &vf, app)
             case ^mu.Command_Icon:
-                mu_draw_icon(cmd.id, cmd.rect, cmd.color, &ui_ctx.rect_list)
+                mu_draw_icon(cmd.id, cmd.rect, cmd.color, &ui_ctx.rect_list, &vf)
             case ^mu.Command_Gradient:
                 mu_draw_gradient(cmd.rect, cmd.gradient, &vf)
             case ^mu.Command_Texture:
                 mu_draw_texture(cmd.rect, cmd.color, cmd.texture, cmd.uv_rect, &vf)
             case ^mu.Command_Mesh:
                 mu_draw_mesh(cmd.rect, cmd.mesh, &vf)
+            case ^mu.Command_Clip:
+                mu_scissor(cmd.rect, &vf)
         }
     }
 
+    // We draw dummy text to avoid invalid UI render state
+    mu_draw_text("A", {0,0}, {0,0,0,0}, app.ui_context.default_font, &vf, app)
+
+
     sdl.UnmapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff)
 
+    
 
     vbuff, errv := render.vbuffer_reserve(vb, u32(vf.vertex_count) * size_of(render.Vertex_Data))
     idxbuff, erri := render.vbuffer_reserve(ib, u32(vf.index_count) * size_of(u32))
@@ -196,7 +234,7 @@ render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Bu
     ok := sdl.SubmitGPUCommandBuffer(copy_cmd); assert(ok)
 
 
-    render.render_ui_elements(app.render_info, vf.atlas, app.ui_context.icon_atlas.texture, u32(vf.index_count), &vbuff, &idxbuff)
+    render.render_ui_elements(app.render_info, vf.atlas, app.ui_context.icon_atlas.texture, u32(vf.index_count), &vbuff, &idxbuff, vf.context_switches[:])
 
 
 }
@@ -348,6 +386,25 @@ mu_draw_text :: proc(text: string, pos: mu.Vec2, color: mu.Color, font: mu.Font,
     ttf.DestroyText(text)
 }
 
-mu_draw_icon :: proc(id: mu.Icon, rect: mu.Rect, color: mu.Color, rect_list: ^Rect_List) {
+mu_draw_icon :: proc(id: mu.Icon, rect: mu.Rect, color: mu.Color, rect_list: ^Rect_List, vf: ^Vertex_Feeder) {
+    white: mu.Color = {255, 255, 255, 255}
+    icon: render.Texture_Tile
+    switch id {
+        case .CLOSE:
+            mu_draw_texture(rect, white, MU_CLOSE.texture, MU_CLOSE.rect, vf)
+        case .COLLAPSED:
+            mu_draw_texture(rect, white, MU_COLLAPSED.texture, MU_COLLAPSED.rect, vf)
+        case .EXPANDED:
+            mu_draw_texture(rect, white, MU_EXPANDED.texture, MU_EXPANDED.rect, vf)
+        case .RESIZE:
+            mu_draw_texture(rect, white, MU_RESIZE.texture, MU_RESIZE.rect, vf)
+        case .CHECK:
+            mu_draw_texture(rect, white, MU_CHECK.texture, MU_CHECK.rect, vf)
+        case .NONE:
 
+    }
+}
+
+mu_scissor :: proc(rect: mu.Rect, vf: ^Vertex_Feeder) {
+    push_scissor(vf, {x = rect.x, y = rect.y, w = rect.w, h = rect.h})
 }

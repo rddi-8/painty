@@ -13,6 +13,7 @@ import "core:math"
 import "core:math/linalg"
 import "shadercross"
 
+
 DEBUG : bool : true
 
 VERTEX_BUFFER_SIZE : u32 :      100 * mem.Megabyte
@@ -44,6 +45,10 @@ Rect_Instance :: struct {
     size: Vec2,
     color: Color,
     uv: Vec2
+}
+Contex_Switch :: struct {
+    num_primitives: int,
+    scissor: sdl.Rect
 }
 VUB :: struct #max_field_align(16) {
     camera: Matrix3align,
@@ -293,7 +298,7 @@ present :: proc(render_info: ^Render_Info) {
 
 }
 
-render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, icon_tex: ^sdl.GPUTexture, num_indices: u32, vbuffer: ^Buffer_Portion, idxbuffer: ^Buffer_Portion) {
+render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, icon_tex: ^sdl.GPUTexture, num_indices: u32, vbuffer: ^Buffer_Portion, idxbuffer: ^Buffer_Portion, cts: []Contex_Switch) {
     ok: bool
 
 
@@ -343,8 +348,23 @@ render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, icon
     sizeh := render_info.render_target_info.height
     screen_size := Vec2{f32(sizew), f32(sizeh)}
     sdl.PushGPUVertexUniformData(cmd_buff, 0, &screen_size, size_of(screen_size))
-
-    sdl.DrawGPUIndexedPrimitives(render_pass, num_indices , 1, 0, 0, 0)
+    
+    num: int = 0
+    counter: int = 0
+    for c in cts {
+        // fmt.println(c)
+        sdl.DrawGPUIndexedPrimitives(render_pass, u32(c.num_primitives) , 1, u32(num), 0, 0)
+        sdl.SetGPUScissor(render_pass, c.scissor)
+        num += c.num_primitives
+        counter += 1
+    }
+    fmt.printfln("scisor_ops: {} num: {} / {}", counter, num, num_indices)
+    // sdl.SetGPUScissor(render_pass, {10, 10, 500, 300})
+    sdl.DrawGPUIndexedPrimitives(render_pass, num_indices - u32(num) , 1, u32(num), 0, 0)
+    // sdl.SetGPUScissor(render_pass, {210, 30, 200, 300})
+    // sdl.DrawGPUIndexedPrimitives(render_pass, 100 , 1, 0, 0, 0)
+    // sdl.SetGPUScissor(render_pass, {10,10, 200, 300})
+    // sdl.DrawGPUIndexedPrimitives(render_pass, num_indices - 100 , 1, 0, 0, 0)
 
     sdl.EndGPURenderPass(render_pass)
     sdl.PopGPUDebugGroup(cmd_buff)

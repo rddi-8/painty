@@ -33,11 +33,15 @@ Text_Renderer :: struct {
     text_engine: ^ttf.TextEngine,
 }
 
+UI_State :: struct {
+    color_picker_open: bool
+}
 Application :: struct {
     window: ^sdl.Window,
     ui_context: ^Ui_Context,
     render_info: ^render.Render_Info,
-    text_renderer: ^Text_Renderer
+    text_renderer: ^Text_Renderer,
+    ui_state: UI_State
 }
 
 main_context: runtime.Context
@@ -107,6 +111,8 @@ main :: proc() {
 
     action_binds := new(Action_Binds)
     create_default_keybinds(action_binds)
+    add_keybind(&action_binds.key_binds, Input_Event_Key{ctx = .PAINTING, key = .C}, 
+        Action_BoolToggle{ value = &app.ui_state.color_picker_open})
     
 
     current_context := InputContext.PAINTING
@@ -263,6 +269,8 @@ main :: proc() {
                         held_actions -= {a.type}
                     }
                     log.debug("Held Action:", a.type, "up:", a.up)
+                case Action_BoolToggle:
+                    a.value^ = !a.value^
             }
         }
         clear(&actions)
@@ -285,15 +293,66 @@ main :: proc() {
         // microui.icon(mu, "iconn", app.ui_context.icons[.BURGER], {255, 255, 255, 255})
         // microui.icon(mu, "iconn", app.ui_context.icons[.BRUSH], {255, 255, 255, 255})
         // microui.end_window(mu)
-
-        if microui.begin_window(mu, "Colooor", {200, 100, 300, 300}) {
+        
+        @static ch: bool
+        if microui.begin_window(mu, "Main", {100, 100, 600, 600}) {
+            defer microui.end_window(mu)
+            microui.checkbox(mu, "Checky2", &ch)
+            if .ACTIVE in microui.header(mu, "Header",){
+                w := microui.get_current_container(mu).body.w /4
+                microui.layout_row(mu, {w,w, 0})
+                microui.button(mu, "Button A")
+                microui.button(mu, "Button B")
+                microui.button(mu, "Button C")
+                microui.button(mu, "Button D")
+                microui.button(mu, "Button E")
+                microui.button(mu, "Button F")
+                microui.button(mu, "Button G")
+                microui.button(mu, "Button H")
+                microui.button(mu, "Button I")
+            }
+            if .ACTIVE in microui.header(mu, "Header 2",){
+                w := microui.get_current_container(mu).body.w /2
+                microui.layout_row(mu, {w,w})
+                microui.button(mu, "Button A")
+                microui.button(mu, "Button B")
+                microui.button(mu, "Button C")
+                microui.button(mu, "Button D")
+                microui.button(mu, "Button E")
+                microui.button(mu, "Button F")
+                microui.button(mu, "Button G")
+                microui.button(mu, "Button H")
+                microui.button(mu, "Button I")
+            }
+            if .ACTIVE in microui.header(mu, "Header 3",){
+                w := microui.get_current_container(mu).body.w /4
+                microui.layout_row(mu, {w,w, -1})
+                microui.button(mu, "Button A", .EXPANDED)
+                microui.button(mu, "Button B", .NONE, {.NO_FRAME})
+                microui.button(mu, "Button C")
+                microui.button(mu, "Button D")
+                microui.button(mu, "Button E")
+                microui.button(mu, "Button F")
+                microui.button(mu, "Button G")
+                microui.button(mu, "Button H")
+                microui.button(mu, "Button I")
+            }
+        }
+        
+        if app.ui_state.color_picker_open && microui.begin_window(mu, "Colooor", {200, 100, 300, 300}) {
+            defer microui.end_window(mu)
+            
             microui.slider(mu, &col_f, 0, 1)
             microui.layout_set_next(mu, {0,0,300,300}, true)
             test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
             microui.draw_mesh(mu, microui.layout_next(mu), &test_mesh)
+            
         }
-        microui.end_window(mu)
-        
+        else if microui.get_container(mu, "Colooor").open {
+            app.ui_state.color_picker_open = false
+        }
+        microui.get_container(mu, "Colooor").open = b32(app.ui_state.color_picker_open)
+        fmt.println(microui.get_container(mu, "Colooor").open)
         
         
         microui.end(mu)
@@ -307,7 +366,6 @@ main :: proc() {
         
         
         render_ui(app.ui_context, app, vbuff, idxbuff)
-        
         render.present(app.render_info)
         
         when DEBUG_PRINT do fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
