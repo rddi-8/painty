@@ -11,7 +11,7 @@ import sdl "vendor:sdl3"
 
 import "microui"
 import "render"
-import "colors"
+import "color"
 import "math2"
 
 WINDOW_W :: 800
@@ -46,13 +46,13 @@ col_f: f32
 
 map_wheel_col :: proc "contextless" (pos: [2]f32) -> [4]f32 {
     angle, l := math2.cart_to_polar(pos)
-    lab_c: colors.Lab
+    lab_c: color.Lab
     lab_c.L = col_f
     lab_c.a = pos.x*0.3
     lab_c.b = pos.y*0.3
 
     col: [4]f32
-    col.rgb = ([3]f32)(colors.to_srgb(([3]f32)(colors.oklab_to_linear_srgb(lab_c))))
+    col.rgb = ([3]f32)(color.to_srgb(([3]f32)(color.oklab_to_linear_srgb(lab_c))))
     if (col.r < 0.0 || col.g < 0.0 || col.b < 0.0 || col.r >1 || col.g > 1 || col.b > 1){
         return {0.5,0.5,0.5, 1.0}
     }
@@ -63,14 +63,14 @@ map_wheel_col :: proc "contextless" (pos: [2]f32) -> [4]f32 {
 
 map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
     angle, l := math2.cart_to_polar(pos)
-    okhsl: colors.HSL
+    okhsl: color.HSL
     okhsl.l = col_f
     okhsl.h = angle / (math.PI*2)
     okhsl.s = l*0.99
 
 
     col: [4]f32
-    col.rgb = ([3]f32)(colors.okhsl_to_srgb(okhsl))
+    col.rgb = ([3]f32)(color.okhsl_to_srgb(okhsl))
     if (col.r < 0.0 || col.g < 0.0 || col.b < 0.0 || col.r >1 || col.g > 1 || col.b > 1){
         return {0.5,0.5,0.5, 1.0}
     }
@@ -292,7 +292,7 @@ main :: proc() {
         microui.layout_row(mu, {-1}, 32)
 
         @static val: f32
-        gradient: colors.Gradient
+        gradient: color.Gradient
         gradient.points = {
             {color = {1, 0, 0, 1}, position = 0},
             {color = {0, 1, 0, 1}, position = 0.5},
@@ -300,46 +300,46 @@ main :: proc() {
         }
         microui.slider_gradient(mu, &val, 0, 10, gradient)
         @static val2: f32
-        gradient2: colors.Gradient
-        pts: [10]colors.GradientPoint
-        c1: colors.RGB = colors.RGB(colors.to_linear({0.9, 0.1, 0.05}))
-        c2: colors.RGB = colors.RGB(colors.to_linear({0.0, 0.3, 0.8}))
-        cc1 := colors.linear_srgb_to_oklab(c1)
-        cc2 := colors.linear_srgb_to_oklab(c2)
+        gradient2: color.Gradient
+        pts: [10]color.GradientPoint
+        c1: color.RGB = color.RGB(color.to_linear({0.9, 0.1, 0.05}))
+        c2: color.RGB = color.RGB(color.to_linear({0.0, 0.3, 0.8}))
+        cc1 := color.linear_srgb_to_oklab(c1)
+        cc2 := color.linear_srgb_to_oklab(c2)
         for i in 0..<len(pts) {
             d := f32(i)/f32(len(pts) - 1)
             pts[i].position = d
-            col := colors.oklab_to_linear_srgb(
+            col := color.oklab_to_linear_srgb(
                 {
                     cc1.L*(1-d) + cc2.L*d,
                     cc1.a*(1-d) + cc2.a*d,
                     cc1.b*(1-d) + cc2.b*d,
                 }
             )
-            csrgb := colors.to_srgb(([3]f32)(col))
+            csrgb := color.to_srgb(([3]f32)(col))
             pts[i].color = {f16(csrgb.r), f16(csrgb.g), f16(csrgb.b), 1}
         }
         gradient2.points = pts[:]
         microui.slider_gradient(mu, &val2, 0, 10, gradient2)
 
         @static val3: f32
-        gradient3: colors.Gradient
-        pts3: [100]colors.GradientPoint
-        c13: colors.RGB = colors.RGB(colors.to_linear({0.9, 0.1, 0.05}))
-        c23: colors.RGB = colors.RGB(colors.to_linear({0.0, 0.3, 0.8}))
-        cc13 := colors.linear_srgb_to_oklab(c13)
-        cc23 := colors.linear_srgb_to_oklab(c23)
+        gradient3: color.Gradient
+        pts3: [100]color.GradientPoint
+        c13: color.RGB = color.RGB(color.to_linear({0.9, 0.1, 0.05}))
+        c23: color.RGB = color.RGB(color.to_linear({0.0, 0.3, 0.8}))
+        cc13 := color.linear_srgb_to_oklab(c13)
+        cc23 := color.linear_srgb_to_oklab(c23)
         for i in 0..<len(pts3) {
             d := f32(i)/f32(len(pts3) - 1)
             pts3[i].position = d
-            col := colors.oklab_to_linear_srgb(
+            col := color.oklab_to_linear_srgb(
                 {
                     cc13.L*(1-d) + cc23.L*d,
                     cc13.a*(1-d) + cc23.a*d,
                     cc13.b*(1-d) + cc23.b*d,
                 }
             )
-            csrgb := colors.to_srgb(([3]f32)(col))
+            csrgb := color.to_srgb(([3]f32)(col))
             pts3[i].color = {f16(csrgb.r), f16(csrgb.g), f16(csrgb.b), 1}
         }
         gradient3.points = pts3[:]

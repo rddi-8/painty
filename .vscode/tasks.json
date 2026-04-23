@@ -15,17 +15,17 @@
         {
             "label": "build-debug",
             "type": "shell",
-            "command": "odin build . -debug -out:build/win/paint_debug.exe",
+            "command": "odin build src -debug -out:build/win/paint_debug.exe",
         },
         {
             "label": "build-o",
             "type": "shell",
-            "command": "odin build . -o:speed -microarch:native -out:build/win/paint.exe",
+            "command": "odin build src -o:speed -microarch:native -out:build/win/paint.exe",
         },
         {
             "label": "buildrun",
             "type": "shell",
-            "command": "odin run . -microarch:native -out:build/win/paint.exe",
+            "command": "odin run src -microarch:native -out:build/win/paint.exe",
         },
         {
             "label": "copy-assets",
@@ -75,7 +75,7 @@
             "type": "shell",
             "command": "glslc .\\shader.glsl.vert -o shader.spv.vert ; glslc .\\shader.glsl.frag -o shader.spv.frag ; glslc .\\rect.glsl.vert -o rect.spv.vert ; glslc .\\rect.glsl.frag -o rect.spv.frag",
             "options": {
-                "cwd": "${workspaceFolder}/render/shaders"
+                "cwd": "${workspaceFolder}src/render/shaders"
             },
         }
     ]

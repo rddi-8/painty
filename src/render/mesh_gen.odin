@@ -3,7 +3,7 @@ package render
 import "core:fmt"
 import "core:math"
 import "../math2"
-import "../colors"
+import "../color"
 
 UI_Mesh :: struct {
     vertices: []Vertex_Data,
@@ -88,7 +88,7 @@ gen_circle :: proc(rad_segments: uint, sections: uint, color_map: gen_color_map 
             verts[2].pos = math2.polar_to_cart(f32(r+1)*segment_angle, f32(s+1)*section_width)
             verts[3].pos = math2.polar_to_cart(f32(r)*segment_angle, f32(s+1)*section_width)
             for i in 0..<4 {
-                verts[i].color = colors.to_col8(color_map(verts[i].pos))
+                verts[i].color = color.to_col8(color_map(verts[i].pos))
             }
             verts[0].pos = verts[0].pos*0.5 + 0.5
             verts[1].pos = verts[1].pos*0.5 + 0.5

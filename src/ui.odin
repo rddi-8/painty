@@ -8,7 +8,7 @@ import "vendor:sdl3/ttf"
 
 import mu "microui"
 import "render"
-import "colors"
+import "color"
 
 Rect_List :: [dynamic]render.Rect_Instance
 
@@ -300,21 +300,21 @@ interp_rect :: proc(rect: mu.Rect, ratio_h: f32, ratio_v: f32) -> [2]f32 {
     return {f32(rect.x) + f32(rect.w)*ratio_h, -f32(rect.y) + -f32(rect.h)*ratio_v}
 }
 
-mu_draw_gradient :: proc(rect: mu.Rect, gradient: colors.Gradient, vf: ^Vertex_Feeder) {
+mu_draw_gradient :: proc(rect: mu.Rect, gradient: color.Gradient, vf: ^Vertex_Feeder) {
     grad := gradient.points
     for i in 0..<len(grad)-1 {
         qp: [4]render.Vertex_Data
         qp[0].pos = interp_rect(rect, grad[i].position, 0)
         qp[3].pos = interp_rect(rect, grad[i].position, 1)
-        qp[0].color = colors.to_col8(grad[i].color)
-        qp[3].color = colors.to_col8(grad[i].color)
+        qp[0].color = color.to_col8(grad[i].color)
+        qp[3].color = color.to_col8(grad[i].color)
         qp[0].uv = UV_FILLED
         qp[3].uv = UV_FILLED
 
         qp[1].pos = interp_rect(rect, grad[i+1].position, 0)
         qp[2].pos = interp_rect(rect, grad[i+1].position, 1)
-        qp[1].color = colors.to_col8(grad[i+1].color)
-        qp[2].color = colors.to_col8(grad[i+1].color)
+        qp[1].color = color.to_col8(grad[i+1].color)
+        qp[2].color = color.to_col8(grad[i+1].color)
         qp[1].uv = UV_FILLED
         qp[2].uv = UV_FILLED
         push_quad(vf, qp)

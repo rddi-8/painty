@@ -1,4 +1,4 @@
-package colors
+package color
 
 GradientPoint :: struct {
     color: Color,

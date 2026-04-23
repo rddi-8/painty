@@ -2,10 +2,10 @@ package microui
 
 import "core:math"
 import "core:fmt"
-import "../colors"
+import "../color"
 import "../render"
 
-slider_gradient :: proc(ctx: ^Context, value: ^Real, low, high: Real, gradient: colors.Gradient, step: Real = 0.0, fmt_string: string = SLIDER_FMT, opt: Options = {.ALIGN_CENTER}) -> (res: Result_Set) {
+slider_gradient :: proc(ctx: ^Context, value: ^Real, low, high: Real, gradient: color.Gradient, step: Real = 0.0, fmt_string: string = SLIDER_FMT, opt: Options = {.ALIGN_CENTER}) -> (res: Result_Set) {
 	last := value^
 	v := last
 	id := get_id(ctx, uintptr(value))

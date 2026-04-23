@@ -34,7 +34,7 @@ import "core:strconv"
 import "core:math"
 import textedit "core:text/edit"
 
-import "../colors"
+import "../color"
 import "../render"
 
 COMMAND_LIST_SIZE    :: #config(MICROUI_COMMAND_LIST_SIZE,    256 * 1024)
@@ -179,7 +179,7 @@ Command_Texture :: struct {
 Command_Gradient :: struct {
 	using command: Command,
 	rect: Rect,
-	gradient: colors.Gradient, 
+	gradient: color.Gradient, 
 }
 Command_Text :: struct { 
 	using command: Command, 
@@ -709,7 +709,7 @@ draw_mesh :: proc(ctx: ^Context, rect: Rect, mesh: ^render.UI_Mesh) {
 	}
 }
 
-draw_gradient_rect :: proc(ctx: ^Context, rect: Rect, gradient: colors.Gradient) {
+draw_gradient_rect :: proc(ctx: ^Context, rect: Rect, gradient: color.Gradient) {
 	rect := rect
 	rect = intersect_rects(rect, get_clip_rect(ctx))
 	if rect.w > 0 && rect.h > 0 {
