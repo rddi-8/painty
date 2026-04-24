@@ -701,12 +701,14 @@ draw_rect :: proc(ctx: ^Context, rect: Rect, color: Color) {
 
 draw_mesh :: proc(ctx: ^Context, rect: Rect, mesh: ^render.UI_Mesh) {
 	rect := rect
-	rect = intersect_rects(rect, get_clip_rect(ctx))
+	// rect = intersect_rects(rect, get_clip_rect(ctx))
+	set_clip(ctx, get_clip_rect(ctx))
 	if rect.w > 0 && rect.h > 0 {
 		cmd := push_command(ctx, Command_Mesh)
 		cmd.rect = rect
 		cmd.mesh = mesh
 	}
+	set_clip(ctx, unclipped_rect)
 }
 
 draw_gradient_rect :: proc(ctx: ^Context, rect: Rect, gradient: color.Gradient) {
@@ -1463,6 +1465,11 @@ end_root_container :: proc(ctx: ^Context) {
 	/* pop base clip rect and container */
 	pop_clip_rect(ctx)
 	pop_container(ctx)
+}
+
+begin_window_c :: proc(ctx: ^Context, conditional: ^bool, title: string, rect: Rect, opt := Options{}) -> bool {
+	get_container(ctx, title)
+	return false
 }
 
 begin_window :: proc(ctx: ^Context, title: string, rect: Rect, opt := Options{}) -> bool {

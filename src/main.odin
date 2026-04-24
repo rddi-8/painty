@@ -9,15 +9,15 @@ import "core:mem"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-import "microui"
+import mu "microui"
 import "render"
 import "color"
 import "math2"
 
 DEBUG_PRINT :: false
 
-WINDOW_W :: 800
-WINDOW_H :: 400
+WINDOW_W :: 1300
+WINDOW_H :: 800
 
 RES_FONT :: "fonts/DroidSans.ttf"
 RES_ICON_ATLAS :: "fonts/icons.png"
@@ -38,10 +38,12 @@ UI_State :: struct {
 }
 Application :: struct {
     window: ^sdl.Window,
+    window_size: [2]int,
     ui_context: ^Ui_Context,
     render_info: ^render.Render_Info,
     text_renderer: ^Text_Renderer,
-    ui_state: UI_State
+    ui_state: UI_State,
+    fg_color: Color,
 }
 
 main_context: runtime.Context
@@ -84,6 +86,8 @@ map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
 
     return col
 }
+
+
 
 main :: proc() {
     mem.tracking_allocator_init(&tracking_alloc, context.allocator)
@@ -147,6 +151,7 @@ main :: proc() {
                     ww, wh :c.int
                     sdl.GetWindowSize(app.window, &ww, &wh)
                     render.create_render_target(app.render_info, u32(ww), u32(wh))
+                    app.window_size = {int(ww), int(wh)}
                 case .QUIT:
                     log.debug("SDL QUIT")
                     break main_loop
@@ -176,18 +181,18 @@ main :: proc() {
                         }
                     }
                 case .MOUSE_MOTION: //MARK: mouse motion
-                    microui.input_mouse_move(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y))
+                    mu.input_mouse_move(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y))
                 case .MOUSE_BUTTON_UP: //MARK: mb up
-                    mu_mouse: microui.Mouse
+                    mu_mouse: mu.Mouse
                     switch ev.button.button {
                         case sdl.BUTTON_LEFT:
-                            mu_mouse = microui.Mouse.LEFT
+                            mu_mouse = mu.Mouse.LEFT
                         case sdl.BUTTON_RIGHT:
-                            mu_mouse = microui.Mouse.RIGHT
+                            mu_mouse = mu.Mouse.RIGHT
                         case sdl.BUTTON_MIDDLE:
-                            mu_mouse = microui.Mouse.MIDDLE
+                            mu_mouse = mu.Mouse.MIDDLE
                     }
-                    microui.input_mouse_up(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
+                    mu.input_mouse_up(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
                     
                     mbtn: Maybe(Mouse_Button) = nil
                     switch ev.button.button {
@@ -212,16 +217,16 @@ main :: proc() {
                     }
 
                 case .MOUSE_BUTTON_DOWN: //MARK: mb down
-                    mu_mouse: microui.Mouse
+                    mu_mouse: mu.Mouse
                     switch ev.button.button {
                         case sdl.BUTTON_LEFT:
-                            mu_mouse = microui.Mouse.LEFT
+                            mu_mouse = mu.Mouse.LEFT
                         case sdl.BUTTON_RIGHT:
-                            mu_mouse = microui.Mouse.RIGHT
+                            mu_mouse = mu.Mouse.RIGHT
                         case sdl.BUTTON_MIDDLE:
-                            mu_mouse = microui.Mouse.MIDDLE
+                            mu_mouse = mu.Mouse.MIDDLE
                     }
-                    microui.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
+                    mu.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
                     
                     mbtn: Maybe(Mouse_Button) = nil
                     switch ev.button.button {
@@ -277,85 +282,14 @@ main :: proc() {
 
         
         
-        mu := app.ui_context.mu_context
-        microui.begin(mu)
-        // microui.begin_window(mu, "Hehhh", {10, 10, 200, 400})
-        // microui.button(mu, "BTN1")
-        // microui.button(mu, "BTN2")
-        // microui.button(mu, "BTN3")
-        // microui.layout_height(mu, 30)
-        // ll := microui.layout_next(mu)
-        // microui.layout_set_next(mu, ll, false)
-        // microui.icon(mu, "iconn2", app.ui_context.icons[.PICKER_CIRCLE], {255, 200, 50, 255})
-        // microui.layout_set_next(mu, ll, false)
-        // microui.icon(mu, "iconn", app.ui_context.icons[.PICKER_RING], {255, 255, 255, 255})
-        // microui.layout_height(mu, 20)
-        // microui.icon(mu, "iconn", app.ui_context.icons[.BURGER], {255, 255, 255, 255})
-        // microui.icon(mu, "iconn", app.ui_context.icons[.BRUSH], {255, 255, 255, 255})
-        // microui.end_window(mu)
+        muctx := app.ui_context.mu_context
+        mu.begin(muctx)
         
-        @static ch: bool
-        if microui.begin_window(mu, "Main", {100, 100, 600, 600}) {
-            defer microui.end_window(mu)
-            microui.checkbox(mu, "Checky2", &ch)
-            if .ACTIVE in microui.header(mu, "Header",){
-                w := microui.get_current_container(mu).body.w /4
-                microui.layout_row(mu, {w,w, 0})
-                microui.button(mu, "Button A")
-                microui.button(mu, "Button B")
-                microui.button(mu, "Button C")
-                microui.button(mu, "Button D")
-                microui.button(mu, "Button E")
-                microui.button(mu, "Button F")
-                microui.button(mu, "Button G")
-                microui.button(mu, "Button H")
-                microui.button(mu, "Button I")
-            }
-            if .ACTIVE in microui.header(mu, "Header 2",){
-                w := microui.get_current_container(mu).body.w /2
-                microui.layout_row(mu, {w,w})
-                microui.button(mu, "Button A")
-                microui.button(mu, "Button B")
-                microui.button(mu, "Button C")
-                microui.button(mu, "Button D")
-                microui.button(mu, "Button E")
-                microui.button(mu, "Button F")
-                microui.button(mu, "Button G")
-                microui.button(mu, "Button H")
-                microui.button(mu, "Button I")
-            }
-            if .ACTIVE in microui.header(mu, "Header 3",){
-                w := microui.get_current_container(mu).body.w /4
-                microui.layout_row(mu, {w,w, -1})
-                microui.button(mu, "Button A", .EXPANDED)
-                microui.button(mu, "Button B", .NONE, {.NO_FRAME})
-                microui.button(mu, "Button C")
-                microui.button(mu, "Button D")
-                microui.button(mu, "Button E")
-                microui.button(mu, "Button F")
-                microui.button(mu, "Button G")
-                microui.button(mu, "Button H")
-                microui.button(mu, "Button I")
-            }
-        }
-        
-        if app.ui_state.color_picker_open && microui.begin_window(mu, "Colooor", {200, 100, 300, 300}) {
-            defer microui.end_window(mu)
-            
-            microui.slider(mu, &col_f, 0, 1)
-            microui.layout_set_next(mu, {0,0,300,300}, true)
-            test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
-            microui.draw_mesh(mu, microui.layout_next(mu), &test_mesh)
-            
-        }
-        else if microui.get_container(mu, "Colooor").open {
-            app.ui_state.color_picker_open = false
-        }
-        microui.get_container(mu, "Colooor").open = b32(app.ui_state.color_picker_open)
-        fmt.println(microui.get_container(mu, "Colooor").open)
-        
-        
-        microui.end(mu)
+        compose_main(app)
+        compose_color_picker(app, &app.ui_state.color_picker_open)
+        compose_panel_test(app)
+
+        mu.end(muctx)
 
 
         
@@ -385,10 +319,16 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
     if !sdl.Init({.VIDEO}) do print_sdl_err()
     if !ttf.Init() do print_sdl_err()
 
-    
-
+    displays: [^]sdl.DisplayID
+    display_count: i32
+    displays = sdl.GetDisplays(&display_count)
+    window_bounds: sdl.Rect
+    sdl.GetDisplayBounds(displays[2], &window_bounds)
     application.window = sdl.CreateWindow(name, c.int(window_w), c.int(window_h), {.RESIZABLE})
     if application.window == nil do print_sdl_err()
+
+    application.window_size = {window_w, window_h}
+    sdl.SetWindowPosition(application.window, window_bounds.x + 500, window_bounds.y + 500)
 
     application.render_info = new(render.Render_Info)
     render.init(application.window, application.render_info)

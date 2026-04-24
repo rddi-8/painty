@@ -11,3 +11,9 @@ cart_to_polar :: proc "contextless" (pos: [2]f32) -> (angle,l: f32) {
     l = math.sqrt(pos.x*pos.x + pos.y*pos.y)
     return
 }
+
+clamp_circle :: proc "contextless" (pos_xy: [2]f32) -> [2]f32 {
+    angle, l := cart_to_polar(pos_xy)
+    l = clamp(l, 0, 1)
+    return polar_to_cart(angle, l)
+}

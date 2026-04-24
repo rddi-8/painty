@@ -41,7 +41,7 @@ ui_init :: proc(ui_ctx: ^Ui_Context, render_info: ^render.Render_Info) {
     ui_ctx.mu_context = new(mu.Context)
     mu.init(ui_ctx.mu_context)
 
-    ui_font := ttf.OpenFont(RES_FONT, 14)
+    ui_font := ttf.OpenFont(RES_FONT, 16)
     ui_ctx.default_font = cast(mu.Font)ui_font
 
     ui_ctx.mu_context.text_height = mu_text_height
@@ -71,6 +71,13 @@ ui_init :: proc(ui_ctx: ^Ui_Context, render_info: ^render.Render_Info) {
     MU_RESIZE = ui_ctx.icons[.MU_RESIZE]
     MU_CHECK = ui_ctx.icons[.MU_CHECK]
 
+    ui_style: ^mu.Style = new(mu.Style)
+    ui_style^ = mu.default_style
+    ui_style.size = {120, 16}
+    ui_style.font = cast(mu.Font)ui_font
+    ui_style.footer_height = 20
+
+    ui_ctx.mu_context.style = ui_style
 
     list := make([dynamic]render.Rect_Instance)
     ui_ctx.rect_list = list

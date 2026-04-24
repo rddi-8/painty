@@ -358,7 +358,7 @@ render_ui_elements :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, icon
         num += c.num_primitives
         counter += 1
     }
-    fmt.printfln("scisor_ops: {} num: {} / {}", counter, num, num_indices)
+    // fmt.printfln("scisor_ops: {} num: {} / {}", counter, num, num_indices)
     // sdl.SetGPUScissor(render_pass, {10, 10, 500, 300})
     sdl.DrawGPUIndexedPrimitives(render_pass, num_indices - u32(num) , 1, u32(num), 0, 0)
     // sdl.SetGPUScissor(render_pass, {210, 30, 200, 300})
