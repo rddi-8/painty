@@ -225,7 +225,9 @@ Container :: struct {
 
 Style :: struct {
 	font:           Font,
+	font_size:		f32,
 	size:           Vec2,
+	scale:			f32,
 	padding:        i32,
 	spacing:        i32,
 	indent:         i32,
@@ -234,6 +236,23 @@ Style :: struct {
 	scrollbar_size: i32,
 	thumb_size:     i32,
 	colors:         [Color_Type]Color,
+}
+
+scale_style :: proc(base: Style, scaling: f32) -> Style {
+	style: Style = base
+	style.size.x = i32(f32(base.size.x) * scaling)
+	style.size.y = i32(f32(base.size.y) * scaling)
+	style.padding = i32(f32(base.padding) * scaling)
+	style.spacing = i32(f32(base.spacing) * scaling)
+	style.indent = i32(f32(base.indent) * scaling)
+	style.title_height = i32(f32(base.title_height) * scaling)
+	style.footer_height = i32(f32(base.footer_height) * scaling)
+	style.scrollbar_size = i32(f32(base.scrollbar_size) * scaling)
+	style.thumb_size = i32(f32(base.thumb_size) * scaling)
+	
+	style.font_size = math.round(base.font_size * scaling)
+	style.scale = scaling
+	return style
 }
 
 Context :: struct {
@@ -295,7 +314,7 @@ pop  :: #force_inline proc(stk: ^$T/Stack($V,$N)) {
 unclipped_rect := Rect{0, 0, 0x1000000, 0x1000000}
 
 default_style := Style{
-	font = nil, size = { 68, 10 },
+	font = nil, font_size = 14, size = { 68, 10 }, scale = 1,
 	padding = 5, spacing = 4, indent = 24,
 	title_height = 24, footer_height = 20,
 	scrollbar_size = 12, thumb_size = 8,

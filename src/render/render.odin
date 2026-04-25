@@ -14,7 +14,7 @@ import "core:math/linalg"
 import "shadercross"
 
 
-DEBUG : bool : true
+DEBUG : bool : false
 
 VERTEX_BUFFER_SIZE : u32 :      100 * mem.Megabyte
 TRANSFER_BUFFER_SIZE : u32 :    100 * mem.Megabyte

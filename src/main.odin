@@ -1,5 +1,8 @@
 package main
 
+import "core:os"
+import "core:encoding/json"
+
 import "core:math"
 import "core:log"
 import "base:runtime"
@@ -33,8 +36,13 @@ Text_Renderer :: struct {
     text_engine: ^ttf.TextEngine,
 }
 
+UI_Panel :: struct {
+    open: bool,
+    rect: mu.Rect,
+}
 UI_State :: struct {
-    color_picker_open: bool
+    color_picker: UI_Panel,
+    dev_panel: UI_Panel,
 }
 Application :: struct {
     window: ^sdl.Window,
@@ -46,9 +54,14 @@ Application :: struct {
     fg_color: Color,
 }
 
+font_cache: map[f32]^ttf.Font
+
 main_context: runtime.Context
 
 timer: u64
+last_frame: u64
+
+user_scaling: f32 = 1.0
 
 col_f: f32
 
@@ -87,7 +100,9 @@ map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
     return col
 }
 
-
+get_frame_time :: proc() -> f32 {
+    return f32(f64(last_frame)/1000000)
+}
 
 main :: proc() {
     mem.tracking_allocator_init(&tracking_alloc, context.allocator)
@@ -116,7 +131,7 @@ main :: proc() {
     action_binds := new(Action_Binds)
     create_default_keybinds(action_binds)
     add_keybind(&action_binds.key_binds, Input_Event_Key{ctx = .PAINTING, key = .C}, 
-        Action_BoolToggle{ value = &app.ui_state.color_picker_open})
+        Action_BoolToggle{ value = &app.ui_state.color_picker.open})
     
 
     current_context := InputContext.PAINTING
@@ -135,7 +150,7 @@ main :: proc() {
     render.create_render_target(app.render_info, u32(ww), u32(wh))
 
     main_loop: for {
-        last_frame: u64 = sdl.GetTicksNS() - timer
+        last_frame = sdl.GetTicksNS() - timer
         // fmt.printfln("%.2f ms", f64(last_frame)/1000000)
         timer = sdl.GetTicksNS()
 
@@ -147,6 +162,10 @@ main :: proc() {
         ev: sdl.Event
         for sdl.PollEvent(&ev) {
             #partial switch ev.type {
+                case .WINDOW_DISPLAY_SCALE_CHANGED:
+                    scale_ui(app)
+                    scaling := sdl.GetWindowDisplayScale(app.window)
+                    fmt.printfln("new display scaling = {}", scaling)
                 case .WINDOW_RESIZED:
                     ww, wh :c.int
                     sdl.GetWindowSize(app.window, &ww, &wh)
@@ -286,8 +305,8 @@ main :: proc() {
         mu.begin(muctx)
         
         compose_main(app)
-        compose_color_picker(app, &app.ui_state.color_picker_open)
-        compose_panel_test(app)
+        compose_color_picker(app, &app.ui_state.color_picker)
+        compose_dev_panel(app, &app.ui_state.dev_panel)
 
         mu.end(muctx)
 
@@ -310,8 +329,36 @@ main :: proc() {
    
 
     sdl.Quit()
+    save_ui_state(app)
     
-    
+}
+
+save_ui_state :: proc(app: ^Application) {
+    log.info("Saving ui state")
+    if json_data, json_err := json.marshal(app.ui_state, allocator = context.temp_allocator); json_err == nil {
+        write_err := os.write_entire_file("ui_state.conf.json", json_data)
+        if write_err != nil {
+            log.errorf("Couldn't save ui state! Error: %v", write_err)
+        }
+    } else {
+        log.errorf("Couldn't save ui state! Error: %v", json_err)
+    }
+}
+
+load_ui_state :: proc(app: ^Application) {
+    log.info("Loading ui state")
+    if json_data, json_err := os.read_entire_file("ui_state.conf.json", context.temp_allocator); json_err == nil {
+        loaded_state: UI_State
+
+        if unmarshal_err := json.unmarshal(json_data, &loaded_state); unmarshal_err == nil {
+            app.ui_state = loaded_state
+            log.info("Loaded previous ui state from \"ui_state.conf.json\"")
+        } else {
+            log.errorf("Failed to load previous ui state. Error: %v", unmarshal_err)
+        }
+    } else {
+        log.debug("Failed to read \"ui_state.conf.json\". Error: &v", json_err)
+    }
 }
 
 init_app :: proc(application: ^Application, window_w, window_h: int, name: cstring) {
@@ -323,7 +370,7 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
     display_count: i32
     displays = sdl.GetDisplays(&display_count)
     window_bounds: sdl.Rect
-    sdl.GetDisplayBounds(displays[2], &window_bounds)
+    sdl.GetDisplayBounds(displays[0], &window_bounds)
     application.window = sdl.CreateWindow(name, c.int(window_w), c.int(window_h), {.RESIZABLE})
     if application.window == nil do print_sdl_err()
 
@@ -336,6 +383,7 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
     application.text_renderer = new(Text_Renderer)
     application.text_renderer.text_engine = ttf.CreateGPUTextEngine(application.render_info.device)
 
+    load_ui_state(application)
    
     application.ui_context = new(Ui_Context)
     ui_init(application.ui_context, application.render_info)

@@ -1,6 +1,14 @@
 *.exe
 *.pdb
 *.S
-build/win/fonts/
-build/win/color/
-img.png
+*.conf.json
+
+build/win/*
+!build/win/dxcompiler.dll
+!build/win/dxil.dll
+!build/win/lcms2.dll
+!build/win/SDL3.dll
+!build/win/SDL3_image.dll
+!build/win/SDL3_shadercross.dll
+!build/win/SD3_ttf.dll
+!build/win/spirv-cross-c-shared.dll

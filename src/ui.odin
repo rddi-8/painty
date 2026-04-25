@@ -71,13 +71,13 @@ ui_init :: proc(ui_ctx: ^Ui_Context, render_info: ^render.Render_Info) {
     MU_RESIZE = ui_ctx.icons[.MU_RESIZE]
     MU_CHECK = ui_ctx.icons[.MU_CHECK]
 
-    ui_style: ^mu.Style = new(mu.Style)
-    ui_style^ = mu.default_style
-    ui_style.size = {120, 16}
-    ui_style.font = cast(mu.Font)ui_font
-    ui_style.footer_height = 20
+    // ui_style: ^mu.Style = new(mu.Style)
+    // ui_style^ = mu.default_style
+    // ui_style.size = {120, 16}
+    // ui_style.font = cast(mu.Font)ui_font
+    // ui_style.footer_height = 20
 
-    ui_ctx.mu_context.style = ui_style
+    // ui_ctx.mu_context.style = ui_style
 
     list := make([dynamic]render.Rect_Instance)
     ui_ctx.rect_list = list

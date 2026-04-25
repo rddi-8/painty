@@ -44,6 +44,27 @@ mesh_append_quad :: proc(mesh: ^UI_Mesh_Builder, vertices: [4]Vertex_Data, share
     append(&mesh.indices, vert_indices[3])
 }
 
+mesh_append_tri :: proc(mesh: ^UI_Mesh_Builder, vertices: [3]Vertex_Data, shared: [3]bool = {true, true, true}) {
+    vert_indices: [3]u32
+    for i in 0..<3 {
+        if shared[i] && vertices[i] in mesh.vert_idx {
+            vert_indices[i] = mesh.vert_idx[vertices[i]]
+        }
+        else {
+            append(&mesh.vertices, vertices[i])
+            idx := len(mesh.vertices) - 1
+            mesh.vert_idx[vertices[i]] = u32(idx)
+            vert_indices[i] = u32(idx)
+        }
+    }
+
+    indicesss := mesh.indices
+
+    append(&mesh.indices, vert_indices[0])
+    append(&mesh.indices, vert_indices[1])
+    append(&mesh.indices, vert_indices[2])
+}
+
 mesh_builder_clear :: proc(mb: ^UI_Mesh_Builder) {
     clear(&mb.indices)
     clear(&mb.vertices)
@@ -96,6 +117,21 @@ gen_circle :: proc(rad_segments: uint, sections: uint, color_map: gen_color_map 
             verts[3].pos = verts[3].pos*0.5 + 0.5
             mesh_append_quad(mb,verts)
         }
+    }
+
+    zero: Vertex_Data
+    zero.pos = {0.5, 0.5}
+    zero.color = color.to_col8(color_map({0,0}))
+    for r in 0..<rad_segments {
+        verts: [3]Vertex_Data
+        verts[0].pos = math2.polar_to_cart(f32(r)*segment_angle, section_width)
+        verts[1].pos = math2.polar_to_cart(f32(r+1)*segment_angle, section_width)
+        verts[0].color = color.to_col8(color_map(verts[0].pos))
+        verts[1].color = color.to_col8(color_map(verts[1].pos))
+        verts[0].pos = verts[0].pos*0.5 + 0.5
+        verts[1].pos = verts[1].pos*0.5 + 0.5
+        verts[2] = zero
+        mesh_append_tri(mb, verts)
     }
     
     return mesh_get(mb)
