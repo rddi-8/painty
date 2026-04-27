@@ -1,9 +1,12 @@
 package main
 
+import "core:math/linalg"
+import "core:slice"
 import "core:os"
 import "core:encoding/json"
 
 import "core:math"
+import "core:math/rand"
 import "core:log"
 import "base:runtime"
 import "core:c"
@@ -16,6 +19,7 @@ import mu "microui"
 import "render"
 import "color"
 import "math2"
+import "canvas"
 
 DEBUG_PRINT :: false
 
@@ -31,6 +35,7 @@ Vec2 :: [2]f32
 
 tracking_alloc: mem.Tracking_Allocator
 
+Transform :: linalg.Matrix3x3f32
 
 Text_Renderer :: struct {
     text_engine: ^ttf.TextEngine,
@@ -52,7 +57,11 @@ Application :: struct {
     text_renderer: ^Text_Renderer,
     ui_state: UI_State,
     fg_color: Color,
+    current_canvas: ^canvas.Canvas
 }
+
+mouse_just_pressed: bool
+view: Canvas_View
 
 font_cache: map[f32]^ttf.Font
 
@@ -122,12 +131,53 @@ main :: proc() {
         log.debugf("SDL {} [{}]: {}", category, priority, message)
     }, nil)
     
+
+    //TODO remove temp canvas stuff
+    main_canvas := canvas.make_canvas({2100, 2600})
+    layer, err := canvas.create_layer(main_canvas)
+    fmt.println(err)
+    canvas.fill_layer(layer, {0.1, 0.4, 0, 1})
+
+    {
+        for t in layer.tiles {
+            slice.fill(t.pixel_data, canvas.Pixel{f16(rand.float32()),f16(rand.float32()),f16(rand.float32()),1})
+            for &d in t.pixel_data {
+                d.rgb += f16(rand.float32()*0.2-0.1)
+            }
+        }
+    }
+    // i := 0
+    // for tile in lr.tiles {
+    //     fmt.printfln("tile[%v] size=%v len=%v data=%p", i, tile.size, len(tile.pixel_data), raw_data(tile.pixel_data))
+    //     fmt.println(tile.pixel_data)
+    //     i += 1
+    // }
+
+
+    
+    
     //TODO remove
     test_mesh := render.gen_circle(8,3, map_wheel_col)
     
     app := new(Application)
     init_app(app, WINDOW_W, WINDOW_H, "Painty")
+    
+    app.current_canvas = main_canvas
 
+    //FIXME this is here for now
+    view.scale = 1
+    view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
+    view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
+
+    //TODO remove tile thingy
+    // tt, tte := render.create_tile_atlas(app.render_info, layer.tile_size, len(layer.tiles))
+
+    tile_array, terr := render.create_tile_array(app.render_info, layer.tile_size, len(layer.tiles))
+
+    // fmt.printfln("canvas tiles = %v, atlas_tiles = %v", len(layer.tiles), len(tt.tiles))
+
+    
+    
     action_binds := new(Action_Binds)
     create_default_keybinds(action_binds)
     add_keybind(&action_binds.key_binds, Input_Event_Key{ctx = .PAINTING, key = .C}, 
@@ -143,7 +193,69 @@ main :: proc() {
     vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 30 * mem.Megabyte)
     
     idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 30 * mem.Megabyte)
-      
+
+    tilebuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10 * mem.Megabyte)
+
+    buncha_tiles: [dynamic]render.Vertex_Data_Tile
+    arr_layer: u32 = 0
+    for tile in layer.tiles {
+        ensure(int(arr_layer) < tile_array.array_size, "Messed up texture array size")
+        pos: [2]f32 = {f32(tile.pos.x), f32(tile.pos.y)}
+        size: [2]f32 = {f32(tile.size), f32(tile.size)}
+        q := render.make_quad_t(pos, pos + size, arr_layer)
+        for v in q {
+            append(&buncha_tiles, v)
+        }
+        // fmt.printfln("[%v]tile pos: %v", arr_layer, tile.pos)
+        arr_layer += 1
+    }
+    for ttt in buncha_tiles {
+
+        // fmt.println(ttt)
+    }
+
+    tilebffr, tlvberr := render.vbuffer_reserve(tilebuff, u32(len(buncha_tiles) * size_of(render.Vertex_Data_Tile)))
+    if tlvberr != nil {
+        log.error(tlvberr)
+    }
+
+    cpds := []render.Copy_Description{
+        {
+            src = {ptr = raw_data(buncha_tiles), size = u32(len(buncha_tiles) * size_of(render.Vertex_Data_Tile))},
+            dst = tilebffr
+        }
+    }
+
+    render.vbuffer_batch_copy(app.render_info, cpds[:])
+
+    { //populate texture
+        arr_layer: u32 = 0
+        cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
+        copy_pass := sdl.BeginGPUCopyPass(cmd)
+        for tile in layer.tiles {
+            //FIXME: don't allocate million cycled transfer buffers
+            tb := sdl.MapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff, true)
+            mem.copy_non_overlapping(tb, raw_data(tile.pixel_data), tile.size * tile.size * size_of(canvas.Pixel))
+            sdl.UnmapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff)
+            
+            sdl.UploadToGPUTexture(copy_pass,
+            {
+                transfer_buffer = app.render_info.transfer_buff
+            },
+            {
+                layer = arr_layer,
+                d = 1,
+                w = u32(tile.size),
+                h = u32(tile.size),
+                texture = tile_array.backing_texture
+            }, false)
+            arr_layer += 1
+        }
+        sdl.EndGPUCopyPass(copy_pass)
+        ok := sdl.SubmitGPUCommandBuffer(cmd)
+    }
+
+
     
     ww, wh :c.int
     sdl.GetWindowSize(app.window, &ww, &wh)
@@ -153,12 +265,14 @@ main :: proc() {
         last_frame = sdl.GetTicksNS() - timer
         // fmt.printfln("%.2f ms", f64(last_frame)/1000000)
         timer = sdl.GetTicksNS()
-
+        
         //MARK: EVENTS
         keybind_map := action_binds.key_binds
         mouse_map := action_binds.mouse_binds
         pen_map := action_binds.pen_binds
-
+        
+        mouse_just_pressed = false
+        clear(&actions)
         ev: sdl.Event
         for sdl.PollEvent(&ev) {
             #partial switch ev.type {
@@ -248,6 +362,7 @@ main :: proc() {
                     mu.input_mouse_down(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y), mu_mouse)
                     
                     mbtn: Maybe(Mouse_Button) = nil
+                    mouse_just_pressed = true
                     switch ev.button.button {
                         case sdl.BUTTON_LEFT:
                             mbtn = .LEFT
@@ -281,6 +396,18 @@ main :: proc() {
                     }
                 case Action_Parameter:
                     log.debug("Parameter Action:", a.type, "value:", a.value)
+                    #partial switch a.type {
+                        case .ROTATE_CANVAS:
+                            mouse: [2]f32
+                            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+                            view_set_pivot(&view, mouse)
+                            view_rotate(&view, math.to_radians(a.value))
+                        case .ZOOM_CANVAS:
+                            mouse: [2]f32
+                            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+                            view_set_pivot(&view, mouse)
+                            view_scale(&view, a.value)
+                    }
                 case Action_Canvas_Location:
                     log.debug("Canvas Location Action:", a.type, "loc:", a.location)
                 case Action_ToolToggle:
@@ -297,10 +424,12 @@ main :: proc() {
                     a.value^ = !a.value^
             }
         }
-        clear(&actions)
 
+        //MARK: update view
+        view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
+        // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
         
-        
+
         muctx := app.ui_context.mu_context
         mu.begin(muctx)
         
@@ -315,9 +444,15 @@ main :: proc() {
 
         render.vbuffer_reset(vbuff)
         render.vbuffer_reset(idxbuff)
-        
-        
-        
+
+
+        uniform_data := render.VUB{
+            camera = render.align_matrix3(view_transform(&view)),
+            width = main_canvas.size.x,
+            height = main_canvas.size.y,
+            tile_size = main_canvas.tile_size,
+        }
+        render.render_canvas(app.render_info, tile_array.backing_texture, u32(len(buncha_tiles)), &tilebffr, uniform_data, .CLEAR)
         render_ui(app.ui_context, app, vbuff, idxbuff)
         render.present(app.render_info)
         

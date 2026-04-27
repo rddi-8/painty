@@ -39,7 +39,8 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
     add_keybind(kb_map,
         Input_Event_Key{
             ctx = .PAINTING,
-            key = .R,
+            key = .T,
+            use_repeat = true,
         },
         Action_Parameter{type = .ROTATE_CANVAS, value = 10})
 
@@ -47,9 +48,26 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
         Input_Event_Key{
             ctx = .PAINTING,
             key = .R,
-            mod = {.LCTRL}
+            use_repeat = true,
         },
         Action_Parameter{type = .ROTATE_CANVAS, value = -10})
+
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
+            key = .E,
+            use_repeat = true,
+        },
+        Action_Parameter{type = .ZOOM_CANVAS, value = 1.2})
+
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
+            key = .E,
+            use_repeat = true,
+            mod = {.LCTRL}
+        },
+        Action_Parameter{type = .ZOOM_CANVAS, value = 0.8})
 
     add_keybind(mouse_map,
         Input_Event_Mouse{

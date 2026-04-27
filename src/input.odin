@@ -20,6 +20,7 @@ Mouse_Button :: enum {
     MBT_4,
     MBT_5,
 }
+
 Mouse_Buttons :: bit_set[Mouse_Button]
 
 PointerInput :: struct {
@@ -55,7 +56,8 @@ Currently_Held_Actions :: bit_set[Action_Held_Enum]
 
 Action_Parameter_Enum :: enum {
     ROTATE_CANVAS,
-    SET_TOOL_OPACITY
+    SET_TOOL_OPACITY,
+    ZOOM_CANVAS,
 }
 Action_Parameter :: struct {
     type: Action_Parameter_Enum,

@@ -48,11 +48,16 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
     if mu.begin_window(ctx, PANEL_NAME, {0,0, 300, 200}) {
         defer mu.end_window(ctx)
         ctn := mu.get_current_container(ctx)
-        container_state.rect = ctn.body
+        container_state.rect = ctn.rect
         
         mu.layout_row(ctx, {-1})
         mu.label(ctx, fmt.tprintf("frametime: %.2f ms", get_frame_time()))
         mu.label(ctx, fmt.tprintf("MEM: %M", tracking_alloc.current_memory_allocated))
+        mu.label(ctx, fmt.tprintf("CANVAS: %M", app.current_canvas.arena.total_used))
+        mu.label(ctx, fmt.tprintf("canvas_size: %d x %d", app.current_canvas.size.x, app.current_canvas.size.y))
+        mu.label(ctx, fmt.tprintf("zoom: %.2f%%", view.scale*100))
+        mu.label(ctx, fmt.tprintf("pivot: (%.2f, %.2f)", view.pivot_offset.x, view.pivot_offset.y))
+        mu.label(ctx, fmt.tprintf("move: (%.2f, %.2f)", view.translation.x, view.translation.y))
 
     }
 
@@ -73,10 +78,10 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
     if mu.begin_window(ctx, PANEL_NAME, {200, 100, 300, 300}, {.NO_SCROLL, .ALIGN_CENTER}) {
         defer mu.end_window(ctx)
         ctn := mu.get_current_container(ctx)
-        container_state.rect = ctn.body
+        container_state.rect = ctn.rect
         
         mu.layout_row(ctx, {-1})
-        mu.slider(ctx, &col_f, 0, 1)
+        mu.slider(ctx, &col_f, 0, 1, 0.0025)
         
         fg_color := color.to_col8(app.fg_color)
         preview_color: mu.Color
