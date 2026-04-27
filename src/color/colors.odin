@@ -75,7 +75,7 @@ color_to_col32 :: proc "contextless" (in_col: Color) -> Color32 {
 }
 
 to_col32 :: proc {
-    color_to_col8,
+    color_to_col32,
 }
 
 to_linear :: proc "contextless" (c: [3]f32) -> [3]f32 {

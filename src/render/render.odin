@@ -528,7 +528,7 @@ Texture_Type :: enum {
 
 MAX_TILE_ATLAS_SIZE :: 2048
 MAX_ARRAY_TEX_SIZE :: 512
-MAX_ARRAY_LAYERS :: 256
+MAX_ARRAY_LAYERS :: 1000
 
 Tile_Atlas :: struct {
     backing_texture : ^sdl.GPUTexture,

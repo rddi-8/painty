@@ -1,5 +1,7 @@
 package canvas
 
+import "core:math/linalg"
+import "core:math"
 import "core:fmt"
 import "core:slice"
 import "core:log"
@@ -21,8 +23,15 @@ Error :: enum byte {
     LAYER_ALLOCATION_ERROR,
 }
 
+Tile_Index :: int
+Rect :: struct {
+    pos: [2]int,
+    size: [2]int,
+}
+
 Canvas :: struct {
     size: [2]int,
+    tile_wh: [2]int,
     tile_size: int,
     allocator: mem.Allocator,
     arena: vmem.Arena,
@@ -48,6 +57,7 @@ make_canvas :: proc(size: [2]int) -> (canvas: ^Canvas, err: vmem.Allocator_Error
     canvas = new(Canvas)
     canvas.size = size
     canvas.tile_size = TILE_SIZE
+    canvas.tile_wh = {find_tile_fit(canvas.tile_size, canvas.size.x), find_tile_fit(canvas.tile_size, canvas.size.y)}
     arena_err := vmem.arena_init_growing(&canvas.arena, block_size)
     if arena_err != nil {
         log.errorf("Error allocating canvas vmem arena: %v", arena_err)
@@ -92,4 +102,54 @@ create_layer :: proc(canvas: ^Canvas) -> (layer: Layer, err: vmem.Allocator_Erro
 
 fill_layer :: proc(layer: Layer, color: Pixel) {
     slice.fill(layer.full_data, color)
+}
+
+vec2f :: #force_inline proc "contextless" (v: [2]int) -> [2]f32 {
+    return {f32(v.x), f32(v.y)}
+}
+vec2i :: #force_inline proc "contextless" (v: [2]f32) -> [2]int {
+    return {int(v.x), int(v.y)}
+}
+
+find_tile_fit :: proc "contextless" (tilesize: int, width: int) -> int {
+    return width / tilesize + (1 if width % tilesize != 0 else 0)
+}
+
+tile_coords :: proc "contextless" (tile_index: int, width: int) -> [2]int {
+    return {
+        tile_index % width if width > 0 else 0,
+        tile_index / width if width > 0 else 0
+    }
+}
+
+tile_index_from_width :: #force_inline proc "contextless" (width: int, pos: [2]int) -> Tile_Index {
+    return pos.x %% width + pos.y * width
+}
+
+tile_index_from_canvas :: proc "contextless" (canvas: ^Canvas, pos: [2]int) -> Tile_Index {
+    return tile_index_from_width(canvas.tile_wh.x, pos)
+}
+
+
+
+tile_index :: proc{
+    tile_index_from_width,
+    tile_index_from_canvas,
+}
+
+match_tile_index :: proc "contextless" (canvas: ^Canvas, canvas_pos: [2]int) -> Tile_Index {
+    canvas_pos := [2]int{canvas_pos.x % canvas.size.x, canvas_pos.y % canvas.size.y}
+    tile_pos: [2]int = {canvas_pos.x / canvas.tile_size, canvas_pos.y / canvas.tile_size}
+    return tile_index(canvas, tile_pos)
+}
+
+match_tile_pos :: proc "contextless" (canvas: ^Canvas, canvas_pos: [2]int) -> [2]int {
+    canvas_pos := [2]int{canvas_pos.x % canvas.size.x, canvas_pos.y % canvas.size.y}
+    return {canvas_pos.x / canvas.tile_size, canvas_pos.y / canvas.tile_size}
+}
+
+match_tiles_rect :: proc "contextless" (canvas: ^Canvas, rect: Rect) -> Rect {
+    tl := match_tile_pos(canvas, rect.pos)
+    br := match_tile_pos(canvas, rect.pos + rect.size.x)
+    return {pos = tl, size = br - tl}
 }
