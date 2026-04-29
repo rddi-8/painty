@@ -67,6 +67,8 @@ font_cache: map[f32]^ttf.Font
 
 main_context: runtime.Context
 
+held: Currently_Held_Actions
+
 timer: u64
 last_frame: u64
 
@@ -133,27 +135,9 @@ main :: proc() {
     
 
     //TODO remove temp canvas stuff
-    main_canvas := canvas.make_canvas({2100, 2600})
-    layer, err := canvas.create_layer(main_canvas)
-    fmt.println(err)
-    canvas.fill_layer(layer, {0.1, 0.4, 0, 1})
-
-    {
-        for t in layer.tiles {
-            slice.fill(t.pixel_data, canvas.Pixel{f16(rand.float32()),f16(rand.float32()),f16(rand.float32()),1})
-            for &d in t.pixel_data {
-                d.rgb += f16(rand.float32()*0.2-0.1)
-            }
-        }
-    }
-    // i := 0
-    // for tile in lr.tiles {
-    //     fmt.printfln("tile[%v] size=%v len=%v data=%p", i, tile.size, len(tile.pixel_data), raw_data(tile.pixel_data))
-    //     fmt.println(tile.pixel_data)
-    //     i += 1
-    // }
-
-
+    main_canvas := canvas.make_canvas({333, 333})
+    
+    
     
     
     //TODO remove
@@ -163,16 +147,17 @@ main :: proc() {
     init_app(app, WINDOW_W, WINDOW_H, "Painty")
     
     app.current_canvas = main_canvas
+    tile_array, terr := render.create_tile_array(app.render_info, main_canvas.tile_size, len(main_canvas.composite_layer.tiles.data))
 
     //FIXME this is here for now
     view.scale = 1
     view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
-    view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
+    view_fit(&view, {f32(main_canvas.size_px.x), f32(main_canvas.size_px.y)})
 
     //TODO remove tile thingy
     // tt, tte := render.create_tile_atlas(app.render_info, layer.tile_size, len(layer.tiles))
 
-    tile_array, terr := render.create_tile_array(app.render_info, layer.tile_size, len(layer.tiles))
+   
 
     // fmt.printfln("canvas tiles = %v, atlas_tiles = %v", len(layer.tiles), len(tt.tiles))
 
@@ -198,10 +183,11 @@ main :: proc() {
 
     buncha_tiles: [dynamic]render.Vertex_Data_Tile
     arr_layer: u32 = 0
-    for tile in layer.tiles {
+    layer := main_canvas.composite_layer
+    for tile in main_canvas.tiles_rect.data {
         ensure(int(arr_layer) < tile_array.array_size, "Messed up texture array size")
-        pos: [2]f32 = {f32(tile.pos.x), f32(tile.pos.y)}
-        size: [2]f32 = {f32(tile.size), f32(tile.size)}
+        pos: [2]f32 = canvas.to_vec2f(tile.pos)
+        size: [2]f32 = canvas.to_vec2f(tile.size)
         q := render.make_quad_t(pos, pos + size, arr_layer)
         for v in q {
             append(&buncha_tiles, v)
@@ -225,28 +211,32 @@ main :: proc() {
             dst = tilebffr
         }
     }
-
+    ttbuffer := sdl.CreateGPUTransferBuffer(app.render_info.device, {
+        size = u32(main_canvas.tile_size * main_canvas.tile_size * size_of(canvas.Pixel)),
+        usage = .UPLOAD,
+    })
     render.vbuffer_batch_copy(app.render_info, cpds[:])
 
     { //populate texture
         arr_layer: u32 = 0
         cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
         copy_pass := sdl.BeginGPUCopyPass(cmd)
-        for tile in layer.tiles {
+        for tile in layer.tiles.data {
+            tile_size := main_canvas.tile_size
             //FIXME: don't allocate million cycled transfer buffers
-            tb := sdl.MapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff, true)
-            mem.copy_non_overlapping(tb, raw_data(tile.pixel_data), tile.size * tile.size * size_of(canvas.Pixel))
-            sdl.UnmapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff)
+            tb := sdl.MapGPUTransferBuffer(app.render_info.device, ttbuffer, true)
+            mem.copy_non_overlapping(tb, raw_data(tile.pixels.data), tile_size * tile_size * size_of(canvas.Pixel))
+            sdl.UnmapGPUTransferBuffer(app.render_info.device, ttbuffer)
             
             sdl.UploadToGPUTexture(copy_pass,
             {
-                transfer_buffer = app.render_info.transfer_buff
+                transfer_buffer = ttbuffer
             },
             {
                 layer = arr_layer,
                 d = 1,
-                w = u32(tile.size),
-                h = u32(tile.size),
+                w = u32(tile_size),
+                h = u32(tile_size),
                 texture = tile_array.backing_texture
             }, false)
             arr_layer += 1
@@ -254,6 +244,11 @@ main :: proc() {
         sdl.EndGPUCopyPass(copy_pass)
         ok := sdl.SubmitGPUCommandBuffer(cmd)
     }
+
+
+
+    
+
 
 
     
@@ -425,9 +420,20 @@ main :: proc() {
             }
         }
 
+        held = held_actions
+
         //MARK: update view
         view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
+        if .EYE_DROPPER in held_actions {
+            mouse: [2]f32
+            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+            mouse = view_to_canvas(&view, mouse)
+            mousei := canvas.to_vec2i(mouse)
+
+        }
         // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
+
+        
         
 
         muctx := app.ui_context.mu_context
@@ -448,8 +454,8 @@ main :: proc() {
 
         uniform_data := render.VUB{
             camera = render.align_matrix3(view_transform(&view)),
-            width = main_canvas.size.x,
-            height = main_canvas.size.y,
+            width = main_canvas.size_px.x,
+            height = main_canvas.size_px.y,
             tile_size = main_canvas.tile_size,
         }
         render.render_canvas(app.render_info, tile_array.backing_texture, u32(len(buncha_tiles)), &tilebffr, uniform_data, .CLEAR)

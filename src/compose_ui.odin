@@ -8,6 +8,7 @@ import "core:fmt"
 import "color"
 import "math2"
 import sdl "vendor:sdl3"
+import "canvas"
 
 get_font :: proc(size: f32) -> ^ttf.Font {
     font: ^ttf.Font
@@ -54,10 +55,16 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.label(ctx, fmt.tprintf("frametime: %.2f ms", get_frame_time()))
         mu.label(ctx, fmt.tprintf("MEM: %M", tracking_alloc.current_memory_allocated))
         mu.label(ctx, fmt.tprintf("CANVAS: %M", app.current_canvas.arena.total_used))
-        mu.label(ctx, fmt.tprintf("canvas_size: %d x %d", app.current_canvas.size.x, app.current_canvas.size.y))
+        mu.label(ctx, fmt.tprintf("canvas_size: %d x %d", app.current_canvas.size_px.x, app.current_canvas.size_px.y))
         mu.label(ctx, fmt.tprintf("zoom: %.2f%%", view.scale*100))
         mu.label(ctx, fmt.tprintf("pivot: (%.2f, %.2f)", view.pivot_offset.x, view.pivot_offset.y))
         mu.label(ctx, fmt.tprintf("move: (%.2f, %.2f)", view.translation.x, view.translation.y))
+        mouse: [2]f32
+        m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+        mouse = view_to_canvas(&view, mouse)
+        mousei := canvas.to_vec2i(mouse)
+        mu.label(ctx, fmt.tprintf("canvas pos: (%d, %d)", mousei.x, mousei.y))
+
 
     }
 
@@ -83,7 +90,9 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.layout_row(ctx, {-1})
         mu.slider(ctx, &col_f, 0, 1, 0.0025)
         
+
         fg_color := color.to_col8(app.fg_color)
+
         preview_color: mu.Color
         preview_color.r = fg_color.r
         preview_color.g = fg_color.g
@@ -114,11 +123,24 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         }
         picker_pos.x = i32((picker_pos_rel.x+1)*0.5*f32(size))
         picker_pos.y = i32((picker_pos_rel.y+1)*0.5*f32(size))
-        picked_color := map_wheel_col_hsl(picker_pos_rel)
-        preview_color.r = u8(picked_color.r * 255)
-        preview_color.g = u8(picked_color.g * 255)
-        preview_color.b = u8(picked_color.b * 255)
-        app.fg_color = picked_color
+        picked_color := app.fg_color
+        
+        if .EYE_DROPPER in held {
+            fgc_ok := color.srgb_to_okhsl(picked_color.rgb)
+            fmt.println(fgc_ok)
+            poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
+            col_f = fgc_ok.l
+            poss = math2.clamp_circle(poss)
+            // poss = (poss+1)/2
+            picker_pos_rel = poss
+        }
+        if .EYE_DROPPER not_in held {
+            picked_color = map_wheel_col_hsl(picker_pos_rel)
+            preview_color.r = u8(picked_color.r * 255)
+            preview_color.g = u8(picked_color.g * 255)
+            preview_color.b = u8(picked_color.b * 255)
+            app.fg_color = picked_color
+        }
         picker_pos = [2]i32{panel.body.x, panel.body.y} + picker_pos
         picker_size: i32 = 12
         picker_rect: mu.Rect = mu.Rect{
