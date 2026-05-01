@@ -31,6 +31,7 @@ Tile_Index :: int
 Canvas :: struct {
     size_px: [2]int,
     tiles_rect: DataView(TileRect),
+    tiles_changed: DataView(bool),
     tile_size: int,
     canvas_rect: RectI,
     allocator: mem.Allocator,
@@ -88,6 +89,14 @@ make_canvas :: proc(size: [2]int) -> (canvas: ^Canvas, err: vmem.Allocator_Error
         num_rows = h,
         data = tiles[:],
     }
+    tiles_changed := make([dynamic]bool, w*h, allocator = canvas.meta_allocator)
+    canvas.tiles_changed = {
+        start_offset = 0,
+        width = w,
+        stride = w,
+        num_rows = h,
+        data = tiles_changed[:],
+    }
 
     tile_iterator := view_iter(&canvas.tiles_rect)
     for tile, coord in view_iterate_ptr(&tile_iterator) {
@@ -121,4 +130,8 @@ fill_layer :: proc(layer: Layer, color: Pixel) {
         slice.fill(tile.pixels.data[:], color)
         layer.tiles.data[i] = tile
     }
+}
+
+canvas_reset_tile_state :: proc(canvas: ^Canvas) {
+    slice.fill(canvas.tiles_changed.data, false)
 }

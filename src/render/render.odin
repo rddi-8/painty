@@ -196,8 +196,8 @@ setup_samplers :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info) {
         {
             mag_filter = .NEAREST,
             min_filter = .LINEAR,
-            address_mode_u = .REPEAT,
-            address_mode_v = .REPEAT,
+            address_mode_u = .CLAMP_TO_EDGE,
+            address_mode_v = .CLAMP_TO_EDGE,
             mipmap_mode = .LINEAR,
             max_lod = 1
         }
@@ -527,8 +527,8 @@ Texture_Type :: enum {
 }
 
 MAX_TILE_ATLAS_SIZE :: 2048
-MAX_ARRAY_TEX_SIZE :: 512
-MAX_ARRAY_LAYERS :: 1000
+MAX_ARRAY_TEX_SIZE :: 1024
+MAX_ARRAY_LAYERS :: 2000
 
 Tile_Atlas :: struct {
     backing_texture : ^sdl.GPUTexture,

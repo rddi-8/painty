@@ -69,6 +69,27 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
         },
         Action_Parameter{type = .ZOOM_CANVAS, value = 0.8})
 
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
+            key = ._1,
+        },
+        Action_Parameter{type = .SET_CANVAS_ZOOM, value = 0.5})
+
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
+            key = ._2,
+        },
+        Action_Parameter{type = .SET_CANVAS_ZOOM, value = 1})
+
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
+            key = ._3,
+        },
+        Action_Parameter{type = .SET_CANVAS_ZOOM, value = 2})
+
     add_keybind(mouse_map,
         Input_Event_Mouse{
             ctx = .PAINTING,

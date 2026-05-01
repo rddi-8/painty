@@ -20,7 +20,7 @@ MouseState :: struct {
 
 ToolState :: struct {
     color: Color,
-    size: f32,
+    size: int,
     flow: f32,
     opacity: f32,
 }

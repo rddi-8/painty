@@ -1,5 +1,6 @@
 package main
 
+import "core:time"
 import "core:math/linalg"
 import "core:slice"
 import "core:os"
@@ -60,6 +61,17 @@ Application :: struct {
     current_canvas: ^canvas.Canvas
 }
 
+pen_mode: bool = false
+BRUSH_SIZE :: 16
+g_tool_state: ToolState = {
+    size = BRUSH_SIZE,
+    flow = 1,
+    opacity = 1,
+}
+
+pen_motion :[dynamic][2]f32
+dabs_c: int
+
 mouse_just_pressed: bool
 view: Canvas_View
 
@@ -92,6 +104,24 @@ map_wheel_col :: proc "contextless" (pos: [2]f32) -> [4]f32 {
 
     return col
 }
+
+// map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
+//     angle, l := math2.cart_to_polar(pos)
+//     okhsl: color.HSL
+//     okhsl.l = angle / (math.PI*2)
+//     okhsl.h = l
+//     okhsl.s = col_f
+
+
+//     col: [4]f32
+//     col.rgb = ([3]f32)(color.okhsl_to_srgb(okhsl))
+//     if (col.r < 0.0 || col.g < 0.0 || col.b < 0.0 || col.r >1 || col.g > 1 || col.b > 1){
+//         return {0.5,0.5,0.5, 1.0}
+//     }
+//     col.a = 1
+
+//     return col
+// }
 
 map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
     angle, l := math2.cart_to_polar(pos)
@@ -135,8 +165,91 @@ main :: proc() {
     
 
     //TODO remove temp canvas stuff
-    main_canvas := canvas.make_canvas({333, 333})
+    main_canvas := canvas.make_canvas({256*20, 256*20})
     
+    start := time.now()
+    // for t in main_canvas.composite_layer.tiles.data
+    // {
+    //     iter := canvas.view_iter(&t.pixels)
+    //     for px, coord in canvas.view_iterate_ptr(&iter) {
+    //         uv := canvas.to_vec2f(coord)/canvas.to_vec2f(main_canvas.tile_size)
+    //         px^ = {f16(uv.x), f16(uv.y), 0.5, 1.0}
+    //     }
+
+    // }
+
+    brush_px := make([]canvas.Pixel, 1024*1024)
+    brush := canvas.generate_round(brush_px, g_tool_state.size)
+
+    fillcol := make([dynamic]canvas.Pixel,main_canvas.tile_size*main_canvas.tile_size)
+    w := main_canvas.tile_size
+    s := main_canvas.tile_size
+    for i in 0..<main_canvas.tile_size*main_canvas.tile_size {
+        x := i % w
+        y := i / w
+        uv := canvas.to_vec2f({x, y})/canvas.to_vec2f(main_canvas.tile_size)
+        fillcol[i] = {f16(uv.x), f16(uv.y), 0.5, 1.0}
+    }
+
+    tile_iter := canvas.view_iter(&main_canvas.tiles_rect)
+
+    brush_rect := canvas.recti({999, 777}, {g_tool_state.size, g_tool_state.size})
+    
+    canvas.brush_dab(brush, brush_rect, {1,1,1,1}, main_canvas.composite_layer)
+
+    // for tile_rect, coord, idx in canvas.view_iterate(&tile_iter)
+    // {
+    //     tiles := main_canvas.composite_layer.tiles.data
+    //     tile_px := tiles[idx].pixels.data
+    //     // iter := canvas.view_iter(&t.pixels)
+    //     // for px, coord in canvas.view_iterate_ptr(&iter) {
+    //     //     uv := canvas.to_vec2f(coord)/canvas.to_vec2f(main_canvas.tile_size)
+    //     //     px^ = {f16(uv.x), f16(uv.y), 0.5, 1.0}
+    //     // }
+    //     // w := t.pixels.width
+    //     // s := main_canvas.tile_size
+    //     for pi in 0..<len(tile_px) {
+    //         // coord := canvas.view_get_point(t.pixels.view, pi)
+    //         // uv := canvas.to_vec2f(coord)/canvas.to_vec2f(main_canvas.tile_size)
+    //         // t.pixels.data[pi] = {f16(uv.x), f16(uv.y), 0.5, 1.0}
+    //         tile_px[pi] = fillcol[pi]
+    //     }
+
+    //     overlap := canvas.rect_intersect(tile_rect, brush_rect)
+
+        
+    //     if (!canvas.rect_is_empty(overlap)) {
+    //         tb_overlap := canvas.view_overlap(tile_rect, brush_rect)
+    //         bt_overlap := canvas.view_overlap(brush_rect, tile_rect)
+    //         tb_data := canvas.DataView(canvas.Pixel){
+    //             view = tb_overlap,
+    //             data = tiles[idx].pixels.data
+    //         }
+    //         bt_data := canvas.DataView(canvas.Pixel){
+    //             view = bt_overlap,
+    //             data = brush.data
+    //         }
+
+    //         fmt.printfln("Tile idx: %v overlaps brush: tile(%v) overlap(%v)", idx, tile_rect.pos_size, overlap.pos_size)
+    //         fmt.printfln("tb overlap: %v", tb_overlap)
+    //         fmt.printfln("bt overlap: %v", bt_overlap)
+    //         fmt.printfln("size: %v == %v", canvas.view_size(tb_overlap), canvas.view_size(bt_overlap))
+    //         tb_iter := canvas.view_iter(&tb_data)
+    //         bt_iter := canvas.view_iter(&bt_data)
+
+    //         width := tb_data.width
+    //         for t, b, row_n in canvas.view_iterate_rows_dual(&tb_iter, &bt_iter) {
+    //             for i in 0..<width {
+    //                 t[i].rgb = t[i].rgb*(1 - b[i].a) + b[i].rgb*b[i].a
+    //             }
+    //         }
+        
+    //     }
+
+
+    // }
+    end := time.now()
+    fmt.printfln("fill time: %v", time.diff(start, end))
     
     
     
@@ -256,6 +369,9 @@ main :: proc() {
     sdl.GetWindowSize(app.window, &ww, &wh)
     render.create_render_target(app.render_info, u32(ww), u32(wh))
 
+    // pen_motion := make([dynamic][2]f32)
+
+
     main_loop: for {
         last_frame = sdl.GetTicksNS() - timer
         // fmt.printfln("%.2f ms", f64(last_frame)/1000000)
@@ -265,6 +381,10 @@ main :: proc() {
         keybind_map := action_binds.key_binds
         mouse_map := action_binds.mouse_binds
         pen_map := action_binds.pen_binds
+
+        clear(&pen_motion)
+
+        fff: canvas.RectF
         
         mouse_just_pressed = false
         clear(&actions)
@@ -378,8 +498,21 @@ main :: proc() {
                             }
                         }
                     }
+                case .PEN_PROXIMITY_IN:
+                    pen_mode = true
+                case .PEN_PROXIMITY_OUT:
+                    pen_mode = false
+                    
+                case .PEN_AXIS:
+                    if ev.paxis.axis == .PRESSURE {
+                        g_tool_state.size = int(BRUSH_SIZE * ev.paxis.value)
+                    }
+                case .PEN_MOTION:
+                    pen_pos: [2]f32 = {ev.pmotion.x, ev.motion.y}
+                    // append(&pen_motion, pen_pos)
             }
         }
+
 
         for action in actions {
             switch a in action {
@@ -402,6 +535,9 @@ main :: proc() {
                             m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
                             view_set_pivot(&view, mouse)
                             view_scale(&view, a.value)
+                        case .SET_CANVAS_ZOOM:
+                            mouse: [2]f32
+                            view.scale = a.value
                     }
                 case Action_Canvas_Location:
                     log.debug("Canvas Location Action:", a.type, "loc:", a.location)
@@ -431,9 +567,55 @@ main :: proc() {
             mousei := canvas.to_vec2i(mouse)
 
         }
+
+        {
+            mouse: [2]f32
+            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+            mouse = view_to_canvas(&view, mouse)
+            mousei := canvas.to_vec2i(mouse)
+            if .LEFT in m_state {
+                brush = canvas.generate_round(brush_px, g_tool_state.size)
+                brush_col: color.Color = color.to_color(app.fg_color)
+                brush_rect = {
+                    pos_size = {pos = mousei - g_tool_state.size/2, size = g_tool_state.size}
+                }
+                canvas.brush_dab(brush, brush_rect, brush_col, main_canvas.composite_layer)
+            }
+        }
         // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
 
-        
+        { //update texture
+            arr_layer: u32 = 0
+            cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
+            copy_pass := sdl.BeginGPUCopyPass(cmd)
+            tile_iter := canvas.view_iter(&main_canvas.tiles_changed)
+            for changed, coord, idx in canvas.view_iterate(&tile_iter) {
+                if changed {
+                    // fmt.printfln("uppy %v", idx)
+                    tile_size := main_canvas.tile_size
+                    tile := main_canvas.composite_layer.tiles.data[idx]
+                    //FIXME: don't allocate million cycled transfer buffers
+                    tb := sdl.MapGPUTransferBuffer(app.render_info.device, ttbuffer, true)
+                    mem.copy_non_overlapping(tb, raw_data(tile.pixels.data), tile_size * tile_size * size_of(canvas.Pixel))
+                    sdl.UnmapGPUTransferBuffer(app.render_info.device, ttbuffer)
+                    
+                    sdl.UploadToGPUTexture(copy_pass,
+                    {
+                        transfer_buffer = ttbuffer
+                    },
+                    {
+                        layer = u32(idx),
+                        d = 1,
+                        w = u32(tile_size),
+                        h = u32(tile_size),
+                        texture = tile_array.backing_texture
+                    }, false)
+                }
+            }
+            sdl.EndGPUCopyPass(copy_pass)
+            ok := sdl.SubmitGPUCommandBuffer(cmd)
+        }
+        canvas.canvas_reset_tile_state(main_canvas) 
         
 
         muctx := app.ui_context.mu_context
@@ -465,6 +647,8 @@ main :: proc() {
         when DEBUG_PRINT do fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
         
         free_all(context.temp_allocator)
+
+        evtm := sdl.WaitEventTimeout(nil, 10)
     }
 
    

@@ -1,5 +1,6 @@
 package canvas
 
+import "base:runtime"
 import "core:math/rand"
 import "base:intrinsics"
 import "core:fmt"
@@ -36,12 +37,12 @@ import "core:time"
 //     using _v: RectFv,
 // }
 
-@(private="file")
+// @(private="file")
 Rect_v :: struct($T: typeid) where intrinsics.type_is_numeric(T) {
     pos: [2]T,
     size: [2]T,
 }
-@(private="file")
+// @(private="file")
 Rect_e :: struct($T: typeid) where intrinsics.type_is_numeric(T) {
     x,y,w,h: T
 }
@@ -76,8 +77,8 @@ DataView :: struct($T: typeid) {
 }
 
 main :: proc() {
-    fmt.println("h")
-    test3()
+
+    test2()
     
 }
 
@@ -109,20 +110,32 @@ test2 :: proc() {
     }
     region.data = data[:]
 
-    clip_rect := view_overlap({xywh = {0,0,8,4}}, {xywh = {4, 2, 20, 20}})
+    clip_rect := view_overlap({xywh = {32,64,16,16}}, {xywh = {40, 50, 16, 16}})
     subregion := DataView(string){
         data = data[:],
         view = clip_rect,
     }
 
+    fmt.println(clip_rect)
+
     iterator := View_Iter(string){view = &subregion, current_offset = subregion.start_offset}
 
     iterator2 := view_iter(&subregion)
 
+    fmt.println("Iter 1")
     for elem, coord, idx in view_iterate(&iterator2) {
         fmt.printfln("elem: %v, c: %v, idx: %v", elem, coord, idx)
     }
 
+    iterator3 := view_iter(&subregion)
+    // fmt.println("Iter 2")
+    // for row, row_n in view_iterate_rows(&iterator3) {
+    //     for elem, x in row {
+    //         fmt.printfln("elem: %v, c: %v", elem, Vec2i{x, row_n})
+    //     }
+    // }
+
+    fmt.println(in_range(10, 11, 12))
 
 }
 
@@ -267,8 +280,8 @@ rect_has_point :: proc {
     recti_has_point,
 }
 
-rectf_is_empty :: proc "contextless" (rect: Rect($T)) -> bool {
-    return rect.size != {0, 0}
+rect_is_empty :: proc "contextless" (rect: Rect($T)) -> bool {
+    return rect.size.x == 0 || rect.size.y == 0
 }
 
 rect_points :: proc "contextless" (rect: Rect($T)) -> [Corner][2]T {
@@ -327,17 +340,14 @@ rect_move :: proc "contextless" (rect: Rect($T), offset: [2]T) -> Rect(T) {
     return {pos_size = {pos = rect.pos + offset, size = rect.size}}
 }
 
-rect_intersect_rebase :: proc "contextless" (area: Rect($T), inner: Rect(T)) -> Rect(T) {
-    if !rect_has_point(area, inner.pos) do return {xywh = {0, 0, 0, 0}}
 
-    clipped := rect_intersect(area, inner)
-    return {pos_size = {pos = clipped.pos - area.pos, size = clipped.size}}
-}
 
 view_overlap :: proc "contextless" (area: RectI, inner: RectI) -> RectView {
-    if !recti_has_point(area, inner.pos) do return {0, 0, 0, 0}
-
-    clipped := rect_intersect_rebase(area, inner)
+    area := area
+    inner := inner
+    inner.pos -= area.pos
+    area.pos = {0, 0}
+    clipped := rect_intersect(area, inner)
     width := area.w
     return {
         start_offset = clipped.y * width + clipped.x,
@@ -398,11 +408,17 @@ view_rebase :: proc "contextless" (view: RectView) -> RectView {
 }
 
 
+
+
 View_Iter :: struct($T: typeid) {
     current_offset: int,
     xpos: int,
     row: int,
     view: ^DataView(T),
+}
+
+Row_Iter :: struct($T: typeid) {
+    run: proc(row_iter: ^Row_Iter(T)) -> (val: []T, cond: bool)
 }
 
 view_iter :: proc(data_view: ^DataView($T)) -> View_Iter(T) {
@@ -411,6 +427,41 @@ view_iter :: proc(data_view: ^DataView($T)) -> View_Iter(T) {
         row = 0,
         xpos = 0,
         view = data_view,
+    }
+}
+
+view_iterate_rows :: proc(iter: ^View_Iter($T)) -> (val: []T, n: int, cond: bool) {
+    view := iter.view
+    if (iter.row < view.num_rows) {
+        row_start := view.start_offset + iter.row*view.stride
+        val = view.data[row_start : row_start + view.width]
+        n = iter.row
+        cond = true
+        iter.row += 1
+        return
+    }
+    else {
+        cond = false
+        return
+    }
+}
+
+view_iterate_rows_dual :: proc(iter1: ^View_Iter($T), iter2: ^View_Iter(T)) -> (val1: []T, val2: []T, n: int, cond: bool) {
+    view1 := iter1.view
+    view2 := iter2.view
+    if (iter1.row < view1.num_rows) {
+        row_start1 := view1.start_offset + iter1.row*view1.stride
+        row_start2 := view2.start_offset + iter1.row*view2.stride
+        val1 = view1.data[row_start1 : row_start1 + view1.width]
+        val2 = view2.data[row_start2 : row_start2 + view2.width]
+        n = iter1.row
+        cond = true
+        iter1.row += 1
+        return
+    }
+    else {
+        cond = false
+        return
     }
 }
 

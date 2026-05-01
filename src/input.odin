@@ -58,6 +58,7 @@ Action_Parameter_Enum :: enum {
     ROTATE_CANVAS,
     SET_TOOL_OPACITY,
     ZOOM_CANVAS,
+    SET_CANVAS_ZOOM,
 }
 Action_Parameter :: struct {
     type: Action_Parameter_Enum,
