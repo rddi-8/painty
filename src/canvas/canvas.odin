@@ -11,7 +11,7 @@ import vmem "core:mem/virtual"
 import "core:container/pool"
 
 MAX_SIZE :: 32768
-TILE_SIZE :: 8 * 32
+TILE_SIZE :: 8 * 64
 BLOCK_SIZE :: 8
 PIXEL_ALIGNMENT :: 64
 

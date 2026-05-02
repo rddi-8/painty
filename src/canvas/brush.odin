@@ -2,9 +2,15 @@ package canvas
 
 import "core:fmt"
 import "../color"
+import "core:prof/spall"
 
-generate_round :: proc(buffer: []Pixel, size: int) -> DataView(Pixel) {
-    view := DataView(Pixel){
+SPALLINF :: struct {
+    spall_ctx: ^spall.Context,
+    spall_buffer: ^spall.Buffer,
+}
+
+generate_round :: proc(buffer: []f32, size: int) -> DataView(f32) {
+    view := DataView(f32){
         data = buffer,
         start_offset = 0,
         stride = size,
@@ -18,10 +24,10 @@ generate_round :: proc(buffer: []Pixel, size: int) -> DataView(Pixel) {
     for row, y in view_iterate_rows(&iter) {
         for &p, x in row {
             if ((x-rad)*(x-rad) + (y-rad)*(y-rad) < rad2) {
-                p = {1,1,1,1}
+                p = 1
             }
             else {
-                p = {0,0,0,0}
+                p = 0
             }
         }
     }
@@ -29,10 +35,11 @@ generate_round :: proc(buffer: []Pixel, size: int) -> DataView(Pixel) {
 }
 
 
-brush_dab :: proc(brush: DataView(Pixel), brush_rect: RectI, col: Pixel, layer: Layer) {
+brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity: f32, layer: Layer) {
     tile_iter := view_iter(&layer.canvas.tiles_rect)
 
-    col32 := color.to_col32(col)
+    col32 := col
+    col32.a = col.a * opacity
     for tile_rect, coord, idx in view_iterate(&tile_iter)
     {
         tiles := layer.tiles.data
@@ -48,7 +55,7 @@ brush_dab :: proc(brush: DataView(Pixel), brush_rect: RectI, col: Pixel, layer: 
                 view = tb_overlap,
                 data = tiles[idx].pixels.data
             }
-            bt_data := DataView(Pixel){
+            bt_data := DataView(f32){
                 view = bt_overlap,
                 data = brush.data
             }
@@ -59,9 +66,8 @@ brush_dab :: proc(brush: DataView(Pixel), brush_rect: RectI, col: Pixel, layer: 
             width := tb_data.width
             for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
                 for i in 0..<width {
-                    src := color.to_col32(b[i])
                     dst := color.to_col32(t[i])
-                    dst.rgb = dst.rgb*(1 - src.a) + col32.rgb*src.a
+                    dst.rgb = dst.rgb*(1 - b[i]*col32.a) + col32.rgb*b[i]*col32.a
                     t[i] = color.to_color(dst)
                     // t[i].rgb = t[i].rgb*(1 - b[i].a) + col.rgb*b[i].a
                 }

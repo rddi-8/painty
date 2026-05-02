@@ -242,6 +242,12 @@ to_vec2i_3 :: #force_inline proc "contextless" (x,y: i32) -> [2]int {
 }
 to_vec2i :: proc {to_vec2i_1, to_vec2i_2, to_vec2i_3}
 
+lerpi :: #force_inline proc "contextless" (a,b: int, t: f32) -> int {
+    return a + int(f32(b - a)*t)
+}
+lerpi_u64 :: #force_inline proc "contextless" (a,b: u64, t: f32) -> u64 {
+    return a + u64(f32(b - a)*t)
+}
 
 rect_intersect :: proc "contextless" (a,b: Rect($T)) -> Rect(T) {
     x1 := max(a.x, b.x)
@@ -446,7 +452,7 @@ view_iterate_rows :: proc(iter: ^View_Iter($T)) -> (val: []T, n: int, cond: bool
     }
 }
 
-view_iterate_rows_dual :: proc(iter1: ^View_Iter($T), iter2: ^View_Iter(T)) -> (val1: []T, val2: []T, n: int, cond: bool) {
+view_iterate_rows_dual :: proc(iter1: ^View_Iter($T1), iter2: ^View_Iter($T2)) -> (val1: []T1, val2: []T2, n: int, cond: bool) {
     view1 := iter1.view
     view2 := iter2.view
     if (iter1.row < view1.num_rows) {
@@ -545,7 +551,7 @@ find_tile_fit :: proc "contextless" (tilesize: int, width: int) -> int {
 // }
 
 // match_tile_index :: proc "contextless" (canvas: ^Canvas, canvas_pos: [2]int) -> Tile_Index {
-//     canvas_pos := [2]int{canvas_pos.x % canvas.size.x, canvas_pos.y % canvas.size.y}
+//     canvas_pos := [2]int{canvas_pos.x % canvas.size_px.x, canvas_pos.y % canvas.size_px.y}
 //     tile_pos: [2]int = {canvas_pos.x / canvas.tile_size, canvas_pos.y / canvas.tile_size}
 //     return tile_index(canvas, tile_pos)
 // }
@@ -555,8 +561,8 @@ match_tile_pos :: proc "contextless" (canvas: ^Canvas, canvas_pos: [2]int) -> [2
     return {canvas_pos.x / canvas.tile_size, canvas_pos.y / canvas.tile_size}
 }
 
-match_tiles_rect :: proc "contextless" (canvas: ^Canvas, rect: RectI) -> RectI {
-    tl := match_tile_pos(canvas, rect.pos)
-    br := match_tile_pos(canvas, rect.pos + rect.size.x)
-    return { pos_size = {pos = tl, size = br - tl}}
-}
+// match_tiles_rect :: proc "contextless" (canvas: ^Canvas, rect: RectI) -> RectI {
+//     tl := match_tile_pos(canvas, rect.pos)
+//     br := match_tile_pos(canvas, rect.pos + rect.size.x)
+//     return { pos_size = {pos = tl, size = br - tl}}
+// }

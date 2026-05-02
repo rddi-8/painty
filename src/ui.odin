@@ -33,7 +33,8 @@ Ui_Context :: struct {
     default_font: mu.Font,
     rect_list: Rect_List,
     icon_atlas: render.Grid_Atlas,
-    icons: map[Icons]render.Texture_Tile
+    icons: map[Icons]render.Texture_Tile,
+    mouse_captured: bool,
 }
 
 

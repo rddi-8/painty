@@ -1,5 +1,6 @@
 package main
 
+import "core:prof/spall"
 import "vendor:sdl3/ttf"
 import "core:math"
 import mu "microui"
@@ -50,6 +51,7 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
         defer mu.end_window(ctx)
         ctn := mu.get_current_container(ctx)
         container_state.rect = ctn.rect
+        app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
         
         mu.layout_row(ctx, {-1})
         mu.label(ctx, fmt.tprintf("frametime: %.2f ms", get_frame_time()))
@@ -59,6 +61,7 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.label(ctx, fmt.tprintf("zoom: %.2f%%", view.scale*100))
         mu.label(ctx, fmt.tprintf("pivot: (%.2f, %.2f)", view.pivot_offset.x, view.pivot_offset.y))
         mu.label(ctx, fmt.tprintf("move: (%.2f, %.2f)", view.translation.x, view.translation.y))
+        mu.label(ctx, fmt.tprintf("pen: %v", pen_mode))
         mouse: [2]f32
         m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
         mouse = view_to_canvas(&view, mouse)
@@ -68,6 +71,11 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
 
     }
 
+}
+
+point_is_inside :: proc(ctn: ^mu.Container, pos: [2]int) -> bool {
+    rect := canvas.recti(ctn.rect)
+    return canvas.rect_has_point(rect, pos)
 }
 
 compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
@@ -86,10 +94,12 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         defer mu.end_window(ctx)
         ctn := mu.get_current_container(ctx)
         container_state.rect = ctn.rect
+        app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
         
         mu.layout_row(ctx, {-1})
         mu.slider(ctx, &col_f, 0, 1, 0.0025)
         
+
 
         fg_color := color.to_col8(app.fg_color)
 
@@ -106,7 +116,10 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         id := mu.get_id(ctx, SUBPANEL_WHEEL)
         
         @static test_mesh: render.UI_Mesh
-        test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
+        {
+            spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, "gen circle")
+            test_mesh = render.gen_circle(64, 16, map_wheel_col_hsl)
+        }
         panel := mu.get_current_container(ctx)
         size := math.min(panel.body.h, panel.body.w)
         panel.body.h = size
@@ -127,7 +140,6 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         
         if .EYE_DROPPER in held {
             fgc_ok := color.srgb_to_okhsl(picked_color.rgb)
-            fmt.println(fgc_ok)
             poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
             col_f = fgc_ok.l
             poss = math2.clamp_circle(poss)
@@ -164,12 +176,47 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
     // is_open^ = bool(mu.get_container(ctx, NAME).open)
 }
 
+compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
+    PANEL_NAME :: "Tool Options"
+    ctx := app.ui_context.mu_context
+
+    @static first_open: bool = true
+    if first_open {
+        mu.get_container(ctx, PANEL_NAME).rect = container_state.rect
+        first_open = false
+    }
+    mu.get_container(ctx, PANEL_NAME).open = b32(container_state.open)
+    defer container_state.open = bool(mu.get_container(ctx, PANEL_NAME).open)
+    if mu.begin_window(ctx, PANEL_NAME, {200, 100, 300, 300}, {.NO_SCROLL, .ALIGN_CENTER}) {
+        defer mu.end_window(ctx)
+        ctn := mu.get_current_container(ctx)
+        container_state.rect = ctn.rect
+        app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
+        
+        mu.layout_row(ctx, {-1})
+        mu.label(ctx, "Brush Size")
+        mu.slider(ctx, &g_tool_state._size, 1, 1000, 1)
+        g_tool_state.size = int(g_tool_state._size)
+        mu.label(ctx, "Brush Opacity")
+        mu.slider(ctx, &g_tool_state.opacity, 0, 1, 0.01)
+        mu.label(ctx, "Step Ratio")
+        mu.slider(ctx, &g_tool_state.step, 0.01, 10, 0.01)
+        mu.layout_row(ctx, {ctn.body.w/2, ctn.body.w/2})
+        mu.checkbox(ctx, "opacity",  &g_tool_state.opacity_press)
+        mu.checkbox(ctx, "size",  &g_tool_state.size_press)
+
+    }
+    // is_open^ = bool(mu.get_container(ctx, NAME).open)
+}
+
 compose_main :: proc(app: ^Application) {
     NAME :: "Main Panel"
     ctx := app.ui_context.mu_context
     mu.get_container(ctx, NAME).rect = {0,0, i32(app.window_size.x), 40}
     mu.begin_window(ctx, NAME,{0,0, i32(app.window_size.x), 40}, {.NO_RESIZE, .NO_TITLE, .NO_CLOSE, .NO_SCROLL})
     defer mu.end_window(ctx)
+    ctn := mu.get_current_container(ctx)
+    app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
 
     mu.layout_row(ctx, {100, 100, 100, 100})
     mu.button(ctx, "BTN1 xxxxxxxxxxxxxxxxx", .NONE, {.AUTO_SIZE})
@@ -182,6 +229,7 @@ compose_main :: proc(app: ^Application) {
         defer mu.end_popup(ctx)
         mu.checkbox(ctx, "Color Picker", &app.ui_state.color_picker.open)
         mu.checkbox(ctx, "Devvy", &app.ui_state.dev_panel.open)
+        mu.checkbox(ctx, "Devvy", &app.ui_state.tool_options.open)
     }
 
     if .CHANGE in mu.slider(ctx, &user_scaling, 0.5, 2.0, 0.1) {

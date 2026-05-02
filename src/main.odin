@@ -1,5 +1,6 @@
 package main
 
+import "core:thread"
 import "core:time"
 import "core:math/linalg"
 import "core:slice"
@@ -15,6 +16,8 @@ import "vendor:sdl3/ttf"
 import "core:mem"
 import "core:fmt"
 import sdl "vendor:sdl3"
+import "core:prof/spall"
+import "core:sync"
 
 import mu "microui"
 import "render"
@@ -23,6 +26,17 @@ import "math2"
 import "canvas"
 
 DEBUG_PRINT :: false
+spall_ctx: spall.Context
+@(thread_local) spall_buffer: spall.Buffer
+
+SPALLINF :: struct {
+    spall_ctx: ^spall.Context,
+    spall_buffer: ^spall.Buffer,
+}
+spall_inf: SPALLINF = {
+    spall_ctx = &spall_ctx,
+    spall_buffer = &spall_buffer,
+}
 
 WINDOW_W :: 1300
 WINDOW_H :: 800
@@ -48,11 +62,13 @@ UI_Panel :: struct {
 }
 UI_State :: struct {
     color_picker: UI_Panel,
+    tool_options: UI_Panel,
     dev_panel: UI_Panel,
 }
 Application :: struct {
     window: ^sdl.Window,
     window_size: [2]int,
+    mouse_pos: [2]int,
     ui_context: ^Ui_Context,
     render_info: ^render.Render_Info,
     text_renderer: ^Text_Renderer,
@@ -62,15 +78,26 @@ Application :: struct {
 }
 
 pen_mode: bool = false
+pen_id: sdl.PenID
+
 BRUSH_SIZE :: 16
 g_tool_state: ToolState = {
-    size = BRUSH_SIZE,
+    _size = 16,
+    size = 16,
     flow = 1,
     opacity = 1,
+    step = 0.05
 }
+f_pen_state: PenState
+f_stroke: ^Stroke_Buffer
+f_stroke_dist_accum: f32
+
+sdl_cursor_crosshair: ^sdl.Cursor
 
 pen_motion :[dynamic][2]f32
 dabs_c: int
+
+drag_tool: bool
 
 mouse_just_pressed: bool
 view: Canvas_View
@@ -79,7 +106,7 @@ font_cache: map[f32]^ttf.Font
 
 main_context: runtime.Context
 
-held: Currently_Held_Actions
+held: ^Held_Actions
 
 timer: u64
 last_frame: u64
@@ -146,6 +173,15 @@ get_frame_time :: proc() -> f32 {
 }
 
 main :: proc() {
+    // spall_ctx = spall.context_create("trace_test.spall")
+	// defer spall.context_destroy(&spall_ctx)
+	// buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+	// defer delete(buffer_backing)
+	// spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+	// defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+    // context.user_ptr = &spall_inf
+
+
     mem.tracking_allocator_init(&tracking_alloc, context.allocator)
     defer mem.tracking_allocator_destroy(&tracking_alloc)
     context.allocator = mem.tracking_allocator(&tracking_alloc)
@@ -163,6 +199,7 @@ main :: proc() {
         log.debugf("SDL {} [{}]: {}", category, priority, message)
     }, nil)
     
+    
 
     //TODO remove temp canvas stuff
     main_canvas := canvas.make_canvas({256*20, 256*20})
@@ -178,7 +215,7 @@ main :: proc() {
 
     // }
 
-    brush_px := make([]canvas.Pixel, 1024*1024)
+    brush_px := make([]f32, 1024*1024)
     brush := canvas.generate_round(brush_px, g_tool_state.size)
 
     fillcol := make([dynamic]canvas.Pixel,main_canvas.tile_size*main_canvas.tile_size)
@@ -191,11 +228,11 @@ main :: proc() {
         fillcol[i] = {f16(uv.x), f16(uv.y), 0.5, 1.0}
     }
 
+    f_stroke = sb_make(100)
+
     tile_iter := canvas.view_iter(&main_canvas.tiles_rect)
 
     brush_rect := canvas.recti({999, 777}, {g_tool_state.size, g_tool_state.size})
-    
-    canvas.brush_dab(brush, brush_rect, {1,1,1,1}, main_canvas.composite_layer)
 
     // for tile_rect, coord, idx in canvas.view_iterate(&tile_iter)
     // {
@@ -251,13 +288,17 @@ main :: proc() {
     end := time.now()
     fmt.printfln("fill time: %v", time.diff(start, end))
     
-    
+
     
     //TODO remove
     test_mesh := render.gen_circle(8,3, map_wheel_col)
     
     app := new(Application)
     init_app(app, WINDOW_W, WINDOW_H, "Painty")
+
+    sdl_cursor_crosshair = sdl.CreateSystemCursor(.CROSSHAIR)
+    if (sdl_cursor_crosshair == nil) do fmt.printfln("CURSOR ERROR: %v", sdl.GetError())
+    ok := sdl.SetCursor(sdl_cursor_crosshair); assert(ok)
     
     app.current_canvas = main_canvas
     tile_array, terr := render.create_tile_array(app.render_info, main_canvas.tile_size, len(main_canvas.composite_layer.tiles.data))
@@ -285,7 +326,10 @@ main :: proc() {
     current_context := InputContext.PAINTING
 
     actions: [dynamic]Action
-    held_actions: Currently_Held_Actions
+    held_actions: Held_Actions
+    just_pressed_actions: Held_Actions
+    just_released_actions: Held_Actions
+    held = &held_actions
 
  
     vbuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 30 * mem.Megabyte)
@@ -296,7 +340,7 @@ main :: proc() {
 
     buncha_tiles: [dynamic]render.Vertex_Data_Tile
     arr_layer: u32 = 0
-    layer := main_canvas.composite_layer
+    composite_layer := main_canvas.composite_layer
     for tile in main_canvas.tiles_rect.data {
         ensure(int(arr_layer) < tile_array.array_size, "Messed up texture array size")
         pos: [2]f32 = canvas.to_vec2f(tile.pos)
@@ -334,7 +378,7 @@ main :: proc() {
         arr_layer: u32 = 0
         cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
         copy_pass := sdl.BeginGPUCopyPass(cmd)
-        for tile in layer.tiles.data {
+        for tile in composite_layer.tiles.data {
             tile_size := main_canvas.tile_size
             //FIXME: don't allocate million cycled transfer buffers
             tb := sdl.MapGPUTransferBuffer(app.render_info.device, ttbuffer, true)
@@ -430,6 +474,10 @@ main :: proc() {
                     }
                 case .MOUSE_MOTION: //MARK: mouse motion
                     mu.input_mouse_move(app.ui_context.mu_context, i32(ev.motion.x), i32(ev.motion.y))
+                    if !pen_mode {
+                        f_pen_state.screen_position = {ev.motion.x, ev.motion.y}
+                        f_pen_state.timestamp = ev.pmotion.timestamp
+                    }
                 case .MOUSE_BUTTON_UP: //MARK: mb up
                     mu_mouse: mu.Mouse
                     switch ev.button.button {
@@ -460,6 +508,10 @@ main :: proc() {
                         for mb in mouse_map[mbtn.(Mouse_Button)] {
                             if mb.mouse_event.up == true {
                                 append(&actions, mb.action)
+                            }
+                            if a, ok := mb.action.(Action_Held); ok {
+                                a.up = true
+                                append(&actions, a)
                             }
                         }
                     }
@@ -498,22 +550,34 @@ main :: proc() {
                             }
                         }
                     }
+                //MARK: pen
                 case .PEN_PROXIMITY_IN:
                     pen_mode = true
+                    pen_id = ev.pproximity.which
                 case .PEN_PROXIMITY_OUT:
                     pen_mode = false
                     
                 case .PEN_AXIS:
-                    if ev.paxis.axis == .PRESSURE {
-                        g_tool_state.size = int(BRUSH_SIZE * ev.paxis.value)
+                    if pen_mode && pen_id == ev.pmotion.which {
+                        #partial switch ev.paxis.axis {
+                            case .PRESSURE :
+                                f_pen_state.pressure = ev.paxis.value
+                        }
                     }
                 case .PEN_MOTION:
-                    pen_pos: [2]f32 = {ev.pmotion.x, ev.motion.y}
-                    // append(&pen_motion, pen_pos)
+                    if pen_mode && pen_id == ev.pmotion.which {
+                        pen_pos: [2]f32 = {ev.pmotion.x, ev.motion.y}
+                        f_pen_state.screen_position = {ev.pmotion.x, ev.pmotion.y}
+                        f_pen_state.timestamp = ev.pmotion.timestamp
+                    }
             }
         }
 
+        
+        just_pressed_actions = {}
+        just_released_actions = {}
 
+        //MARK: ACTIONS
         for action in actions {
             switch a in action {
                 case Action_Simple:
@@ -538,6 +602,16 @@ main :: proc() {
                         case .SET_CANVAS_ZOOM:
                             mouse: [2]f32
                             view.scale = a.value
+                        case .TOOL_SIZE_SCALING:
+                            g_tool_state._size = math.ceil(g_tool_state._size*a.value)
+                            if g_tool_state._size <= 2.5 && a.value > 1 {
+                                g_tool_state._size = 3
+                            }
+                            
+                        case .TOOL_SIZE_FLAT:
+                            g_tool_state._size += math.ceil(a.value)
+                        case .TOOL_SIZE_SET:
+                            g_tool_state._size = math.ceil(a.value)
                     }
                 case Action_Canvas_Location:
                     log.debug("Canvas Location Action:", a.type, "loc:", a.location)
@@ -546,9 +620,11 @@ main :: proc() {
                 case Action_Held:
                     if !a.up {
                         held_actions += {a.type}
+                        just_pressed_actions += {a.type}
                     }
                     else {
                         held_actions -= {a.type}
+                        just_released_actions -= {a.type}
                     }
                     log.debug("Held Action:", a.type, "up:", a.up)
                 case Action_BoolToggle:
@@ -556,30 +632,141 @@ main :: proc() {
             }
         }
 
-        held = held_actions
+        view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
+        f_pen_state.canvas_position = view_to_canvas(&view, f_pen_state.screen_position)
+
+
+        mousepos: [2]f32
+        mstate := sdl.GetMouseState(&mousepos.x, &mousepos.y) 
+        app.mouse_pos = canvas.to_vec2i(mousepos)
+
+        if .PAN_CANVAS in held_actions {
+            mousepos: [2]f32
+            mrel := sdl.GetRelativeMouseState(&mousepos.x, &mousepos.y)
+            if .LEFT in mrel {
+                view_tr := view_transform(&view)
+                rel_m: [3]f32
+                rel_m.xy = 2*mousepos/canvas.to_vec2f(app.window_size)
+                rel_m.y *= -1
+                rel_m = linalg.inverse(view_tr) * rel_m
+                view_translate(&view, -rel_m.xy)
+            }
+        }
+
+        {
+            muctx := app.ui_context.mu_context
+            mu.begin(muctx)
+            app.ui_context.mouse_captured = false 
+            compose_main(app)
+            compose_color_picker(app, &app.ui_state.color_picker)
+            compose_dev_panel(app, &app.ui_state.dev_panel)
+            compose_tool_settings(app, &app.ui_state.tool_options)
+
+
+            mu.end(muctx)
+        }
+
+        
+
+        if app.ui_context.mouse_captured {
+            ok := sdl.SetCursor(sdl.GetDefaultCursor()); assert(ok)
+            ok = sdl.ShowCursor(); assert(ok)
+            if .PAINT in just_pressed_actions {
+                just_pressed_actions -= {.PAINT}
+                held_actions -= {.PAINT}
+            }
+        }
+        else {
+            if pen_mode {
+                ok := sdl.HideCursor(); assert(ok)
+            }
+            ok := sdl.SetCursor(sdl_cursor_crosshair); assert(ok)
+        }
+        
+
+
 
         //MARK: update view
-        view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
+        
+
+        stroke_point := Stroke_Point{
+            canvas_pos = f_pen_state.canvas_position,
+            color = app.fg_color,
+            time = f_pen_state.timestamp,
+        }
+        if pen_mode && (g_tool_state.size_press) {
+            stroke_point.size = int(f_pen_state.pressure * f32(g_tool_state.size))
+        }
+        else {
+            stroke_point.size = g_tool_state.size
+        }
+
+        if pen_mode && (g_tool_state.opacity_press) {
+            stroke_point.alpha = f_pen_state.pressure * g_tool_state.opacity
+        }
+        else {
+            stroke_point.alpha = g_tool_state.opacity
+        }
+
+        if .PAINT in held_actions && .PAN_CANVAS not_in held_actions {
+            sb_push(f_stroke, stroke_point)
+        }
+        else {
+            sb_clear(f_stroke)
+            f_stroke_dist_accum = 0
+        }
+
+
+
         if .EYE_DROPPER in held_actions {
             mouse: [2]f32
             m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
             mouse = view_to_canvas(&view, mouse)
             mousei := canvas.to_vec2i(mouse)
 
+            tile_pos := canvas.match_tile_pos(main_canvas, mousei)
+            tile_idx := canvas.view_get_index(composite_layer.tiles.view, tile_pos)
+            tile := composite_layer.tiles.data[tile_idx]
+            mousei.x = mousei.x %% tile.pixels.width
+            mousei.y = mousei.y %% tile.pixels.width
+            px_idx := canvas.view_get_index(tile.pixels.view, mousei)
+            app.fg_color = color.to_col32(tile.pixels.data[px_idx])
         }
 
         {
-            mouse: [2]f32
-            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
-            mouse = view_to_canvas(&view, mouse)
-            mousei := canvas.to_vec2i(mouse)
-            if .LEFT in m_state {
-                brush = canvas.generate_round(brush_px, g_tool_state.size)
-                brush_col: color.Color = color.to_color(app.fg_color)
-                brush_rect = {
-                    pos_size = {pos = mousei - g_tool_state.size/2, size = g_tool_state.size}
+            brush_apply :: proc(buffer: []f32, layer: canvas.Layer, sp: Stroke_Point) {
+                @static size: int = 0
+                @static brush: canvas.DataView(f32)
+                if sp.size != size {
+                    brush = canvas.generate_round(buffer, sp.size)
+                    size = sp.size
                 }
-                canvas.brush_dab(brush, brush_rect, brush_col, main_canvas.composite_layer)
+                brush_rect := canvas.RectI{
+                    pos_size = {pos = canvas.to_vec2i(sp.canvas_pos) - sp.size/2, size = sp.size}
+                }
+                canvas.brush_dab(brush, brush_rect, sp.color, sp.alpha, layer)
+            }
+            if .PAINT in held_actions {
+                current, err1 := sb_get(f_stroke, 0)
+                last, err2 := sb_get(f_stroke, 1)
+                if (f_stroke.length <= 1) {
+                    brush_apply(brush_px, composite_layer, current)
+                }
+                else {
+                    distance := linalg.distance(current.canvas_pos, last.canvas_pos)
+                    size_min := min(current.size, last.size)
+                    step := max(g_tool_state.step * f32(size_min), 1)
+                    for d: f32 = max(step - f_stroke_dist_accum, 0); d < distance; d += step {
+
+                        s_point := stroke_interpolate(last, current, d / distance) if distance > 0 else current
+
+                        brush_apply(brush_px, composite_layer, s_point)
+                        f_stroke_dist_accum = distance - d
+                    }
+                    f_stroke_dist_accum += distance
+                }
+
+                
             }
         }
         // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
@@ -617,15 +804,7 @@ main :: proc() {
         }
         canvas.canvas_reset_tile_state(main_canvas) 
         
-
-        muctx := app.ui_context.mu_context
-        mu.begin(muctx)
-        
-        compose_main(app)
-        compose_color_picker(app, &app.ui_state.color_picker)
-        compose_dev_panel(app, &app.ui_state.dev_panel)
-
-        mu.end(muctx)
+       
 
 
         
@@ -633,22 +812,23 @@ main :: proc() {
         render.vbuffer_reset(vbuff)
         render.vbuffer_reset(idxbuff)
 
-
-        uniform_data := render.VUB{
-            camera = render.align_matrix3(view_transform(&view)),
-            width = main_canvas.size_px.x,
-            height = main_canvas.size_px.y,
-            tile_size = main_canvas.tile_size,
+        {
+            uniform_data := render.VUB{
+                camera = render.align_matrix3(view_transform(&view)),
+                width = main_canvas.size_px.x,
+                height = main_canvas.size_px.y,
+                tile_size = main_canvas.tile_size,
+            }
+            render.render_canvas(app.render_info, tile_array.backing_texture, u32(len(buncha_tiles)), &tilebffr, uniform_data, .CLEAR)
+            render_ui(app.ui_context, app, vbuff, idxbuff)
+            render.present(app.render_info)
         }
-        render.render_canvas(app.render_info, tile_array.backing_texture, u32(len(buncha_tiles)), &tilebffr, uniform_data, .CLEAR)
-        render_ui(app.ui_context, app, vbuff, idxbuff)
-        render.present(app.render_info)
         
         when DEBUG_PRINT do fmt.print(fmt.tprintfln("MEM: %M", tracking_alloc.current_memory_allocated))
         
         free_all(context.temp_allocator)
 
-        evtm := sdl.WaitEventTimeout(nil, 10)
+        evtm := sdl.WaitEventTimeout(nil, -1)
     }
 
    

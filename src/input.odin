@@ -46,19 +46,26 @@ Action_Simple :: struct {
 Action_Held_Enum :: enum {
     EYE_DROPPER,
     DRAG_BRUSH_SIZE,
-    DRAG_BRUSH_OPACITY
+    DRAG_BRUSH_OPACITY,
+    PAINT,
+    PAN_CANVAS,
 }
 Action_Held :: struct {
     type: Action_Held_Enum,
     up: bool,
 }
-Currently_Held_Actions :: bit_set[Action_Held_Enum] 
+Held_Actions :: bit_set[Action_Held_Enum] 
 
 Action_Parameter_Enum :: enum {
     ROTATE_CANVAS,
-    SET_TOOL_OPACITY,
     ZOOM_CANVAS,
     SET_CANVAS_ZOOM,
+    TOOL_SIZE_SCALING,
+    TOOL_SIZE_FLAT,
+    TOOL_SIZE_SET,
+    TOOL_OPACITY_SCALING,
+    TOOL_OPACITY_FLAT,
+    TOOL_OPACITY_SET,
 }
 Action_Parameter :: struct {
     type: Action_Parameter_Enum,
