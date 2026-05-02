@@ -752,19 +752,6 @@ draw_texture_rect :: proc(ctx: ^Context, rect: Rect, color: Color, tile: render.
 	}
 }
 
-//unclipped for canvas overlay
-draw_texture_rect_cv :: proc(ctx: ^Context, rect: Rect, color: Color, tile: render.Texture_Tile) {
-	rect := rect
-	// set_clip(ctx, unclipped_rect)
-	if rect.w > 0 && rect.h > 0 {
-		cmd := push_command(ctx, Command_Texture)
-		cmd.rect = rect
-		cmd.color = color
-		cmd.texture = tile.texture
-		cmd.uv_rect = tile.rect
-	}
-}
-
 draw_box :: proc(ctx: ^Context, rect: Rect, color: Color) {
 	draw_rect(ctx, Rect{rect.x+1,        rect.y,          rect.w-2, 1     }, color)
 	draw_rect(ctx, Rect{rect.x+1,        rect.y+rect.h-1, rect.w-2, 1     }, color)
