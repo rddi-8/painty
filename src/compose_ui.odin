@@ -113,7 +113,13 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         col_lb.l = 1
         grad_l := gradient_2color_hsl(col_la,col_lb)
 
-        l_change := mu.slider_gradient(ctx, &col_f, 0, 1, grad_l, 0.0025)
+        l_change := mu.slider_gradient(ctx, &picked_hsl.l, 0, 1, grad_l, 0.0025)
+        if .CHANGE in l_change {
+            col_f = picked_hsl.l
+        }
+        slider_id := mu.get_id(ctx, uintptr(&picked_hsl.l))
+        @static mouse_in_slider_l: bool
+        mouse_in_slider_l = ctx.focus_id == slider_id
   
         
 
@@ -173,10 +179,12 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
                 fgc_ok.s = picked_hsl.s
             }
             picked_hsl = fgc_ok
-            poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
-            poss = math2.clamp_circle(poss)
-            // poss = (poss+1)/2
-            picker_pos_rel = poss
+            if !mouse_in_slider_l {
+                poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
+                poss = math2.clamp_circle(poss)
+                // poss = (poss+1)/2
+                picker_pos_rel = poss
+            }
         }
         picker_pos = [2]i32{panel.body.x, panel.body.y} + picker_pos
         picker_size: i32 = 12
