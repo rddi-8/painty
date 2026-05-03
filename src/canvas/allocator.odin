@@ -3,6 +3,7 @@ package canvas
 import "core:container/queue"
 import "core:mem"
 import vmem "core:mem/virtual"
+import "core:fmt"
 
 DEFAULT_RESERVE :: 4
 Tile_Allocator :: struct {
@@ -31,14 +32,16 @@ talloc_reserve :: proc(talloc: ^Tile_Allocator, tile_count: int) -> mem.Allocato
 	return nil
 }
 
-talloc_pop :: proc(talloc: ^Tile_Allocator) -> ^Tile {
+@(require_results)
+talloc_get :: proc(talloc: ^Tile_Allocator) -> ^Tile {
 	tile, ok := queue.pop_back_safe(&talloc.free_list)
 	if ok {
 		return tile
 	}
 	else {
 		talloc_reserve(talloc, DEFAULT_RESERVE)
-		return queue.pop_back(&talloc.free_list)
+		ttile := queue.pop_back(&talloc.free_list)
+		return ttile
 	}
 }
 

@@ -97,7 +97,23 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
         
         mu.layout_row(ctx, {-1})
-        mu.slider(ctx, &col_f, 0, 1, 0.0025)
+
+        @static picked_hsl: color.HSL
+        current_hsl := picked_hsl
+        // if (current_hsl.h == 0) {
+        //     current_hsl = {0.5, 0, 0.5}
+        // }
+        // if (current_hsl.l == 1) {
+        //     current_hsl = {current_hsl.h, 0, 0.5}
+        // }
+        col_la := current_hsl
+        col_la.l = 0
+        col_lb := current_hsl
+        col_lb.l = 1
+        grad_l := gradient_2color_hsl(col_la,col_lb)
+
+        l_change := mu.slider_gradient(ctx, &col_f, 0, 1, grad_l, 0.0025)
+  
         
 
 
@@ -111,7 +127,7 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         picker_pos: [2]i32
         @static picker_pos_rel: [2]f32
         
-        mu.layout_row(ctx, {-1}, -(ctx.style.size.y + ctx.style.spacing + ctx.style.padding - 4)*3)
+        mu.layout_row(ctx, {-1}, -(ctx.style.size.y + ctx.style.padding + ctx.style.spacing)*4 - ctx.style.footer_height)
         mu.begin_panel(ctx, SUBPANEL_WHEEL, {.EXPANDED})
         id := mu.get_id(ctx, SUBPANEL_WHEEL)
         
@@ -138,20 +154,22 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         picker_pos.y = i32((picker_pos_rel.y+1)*0.5*f32(size))
         picked_color := app.fg_color
         
-        if .EYE_DROPPER in held {
-            fgc_ok := color.srgb_to_okhsl(picked_color.rgb)
-            poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
-            col_f = fgc_ok.l
-            poss = math2.clamp_circle(poss)
-            // poss = (poss+1)/2
-            picker_pos_rel = poss
-        }
-        if .EYE_DROPPER not_in held {
+              
+        if .EYE_DROPPER not_in held && (ctx.focus_id == id && ctx.mouse_down_bits == {.LEFT}) || .CHANGE in l_change {
+            picked_hsl = map_wheel_col_hsl_tohsl(picker_pos_rel)
             picked_color = map_wheel_col_hsl(picker_pos_rel)
             preview_color.r = u8(picked_color.r * 255)
             preview_color.g = u8(picked_color.g * 255)
             preview_color.b = u8(picked_color.b * 255)
             app.fg_color = picked_color
+        }
+        else {
+            fgc_ok := color.srgb_to_okhsl(app.fg_color.rgb)
+            col_f = fgc_ok.l
+            poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
+            poss = math2.clamp_circle(poss)
+            // poss = (poss+1)/2
+            picker_pos_rel = poss
         }
         picker_pos = [2]i32{panel.body.x, panel.body.y} + picker_pos
         picker_size: i32 = 12
@@ -165,15 +183,75 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
             mu.draw_texture_rect(ctx, picker_rect,  {255,255,255,255}, app.ui_context.icons[.PICKER_RING])
             
             mu.end_panel(ctx)
-            mu.layout_row(ctx, {100, 100, 100})
-            mu.button(ctx, "BTN3")
-            mu.button(ctx, "BTN4")
-            mu.button(ctx, "BTN5")
-            mu.button(ctx, "BTN6")
+            mu.layout_row(ctx, {40, -1})
+            @static slider_r, slider_g, slider_b: f32
+            slider_r = app.fg_color.r
+            slider_g = app.fg_color.g
+            slider_b = app.fg_color.b
+            mu.label(ctx, "C")
             r := mu.layout_next(ctx)
             mu.draw_rect(ctx, r, preview_color)
+            mu.label(ctx, "R")
+            fg_ra := col_replace(app.fg_color, 0, 0)
+            fg_rb := col_replace(app.fg_color, 0, 1)
+            grad_r := gradient_2color(fg_ra, fg_rb)
+            if .CHANGE in mu.slider_gradient(ctx, &slider_r, 0, 1, grad_r) {
+                app.fg_color.r = slider_r
+            }
+            mu.label(ctx, "G")
+            fg_ga := col_replace(app.fg_color, 1, 0)
+            fg_gb := col_replace(app.fg_color, 1, 1)
+            grad_g := gradient_2color(fg_ga, fg_gb)
+            if .CHANGE in mu.slider_gradient(ctx, &slider_g, 0, 1, grad_g) {
+                app.fg_color.g = slider_g
+            }
+            mu.label(ctx, "B")
+            fg_ba := col_replace(app.fg_color, 2, 0)
+            fg_bb := col_replace(app.fg_color, 2, 1)
+            grad_b := gradient_2color(fg_ba, fg_bb)
+            if .CHANGE in mu.slider_gradient(ctx, &slider_b, 0, 1, grad_b) {
+                app.fg_color.b = slider_b
+            }
     }
     // is_open^ = bool(mu.get_container(ctx, NAME).open)
+}
+
+col_replace :: proc(color: [$N]$T, $CH: int, replace_by: T) -> [N]T where CH >= 0 && CH < N{
+    col := color
+    col[CH] = replace_by
+    return col
+}
+
+gradient_2color :: proc(color_a, color_b: [4]f32) -> color.Gradient {
+    SAMPLES :: 12
+    grad: color.Gradient
+    grad.points = make([]color.GradientPoint, SAMPLES, context.temp_allocator)
+    color_a := color.to_color(color_a)
+    color_b := color.to_color(color_b)
+    for i in 0..<SAMPLES {
+        grad.points[i].position = f32(i)/(SAMPLES - 1)
+        grad.points[i].color = math.lerp(color_a, color_b, f16(i)/(SAMPLES - 1))
+    }
+    return grad
+}
+
+gradient_2color_hsl :: proc(color_a, color_b: color.HSL) -> color.Gradient {
+    SAMPLES :: 12
+    grad: color.Gradient
+    grad.points = make([]color.GradientPoint, SAMPLES, context.temp_allocator)
+    for i in 0..<SAMPLES {
+        t := f32(i)/(SAMPLES - 1)
+        grad.points[i].position = t
+        hsl_lerp: color.HSL
+        hsl_lerp.h = math.lerp(color_a.h, color_b.h, t)
+        hsl_lerp.s = math.lerp(color_a.s, color_b.s, t)
+        hsl_lerp.l = math.lerp(color_a.l, color_b.l, t)
+        srgba: color.Color32
+        srgba.rgb = cast([3]f32)color.okhsl_to_srgb(hsl_lerp)
+        srgba.a = 1
+        grad.points[i].color = color.to_color(srgba)
+    }
+    return grad
 }
 
 compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {

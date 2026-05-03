@@ -9,6 +9,7 @@ import "core:log"
 import "core:mem"
 import vmem "core:mem/virtual"
 import "core:container/pool"
+import "../color"
 
 MAX_SIZE :: 32768
 TILE_SIZE :: 8 * 64
@@ -40,6 +41,7 @@ Canvas :: struct {
     layer_stack: [dynamic]Layer,
     composite_layer: Layer,
     tile_allocator: ^Tile_Allocator,
+    current_target_layer: Layer,
 }
 
 
@@ -106,7 +108,7 @@ make_canvas :: proc(size: [2]int) -> (canvas: ^Canvas, err: vmem.Allocator_Error
     }
 
     canvas.composite_layer = create_layer(canvas) or_return
-    fill_layer(canvas.composite_layer, {0.1, 0.2, 0.3, 1})
+    fill_layer(canvas.composite_layer, {0.0, 0.0, 0.0, 0.0})
   
     return
 }
@@ -125,13 +127,58 @@ fill_layer :: proc(layer: Layer, color: Pixel) {
     tile_count := view_size(layer.tiles.view)
     talloc_reserve(layer.tile_allocator, tile_count)
     for i in 0..<tile_count {
-        tile := talloc_pop(layer.tile_allocator)
+        tile := talloc_get(layer.tile_allocator)
         tile.non_empty = true
         slice.fill(tile.pixels.data[:], color)
         layer.tiles.data[i] = tile
     }
 }
 
+clear_tile :: proc(tile: ^Tile) {
+    mem.zero_slice(tile.pixels.data)
+}
+
 canvas_reset_tile_state :: proc(canvas: ^Canvas) {
     slice.fill(canvas.tiles_changed.data, false)
+}
+
+mark_changed :: proc(canvas: ^Canvas) {
+    slice.fill(canvas.tiles_changed.data, true)
+}
+
+canvas_compose :: proc(canvas: ^Canvas) {
+    tile_iter := view_iter(&canvas.tiles_changed)
+    for changed, coord, idx in view_iterate(&tile_iter) {
+        if changed {
+            canvas_compose_tiles(canvas, idx)
+        }
+    }
+}
+
+
+canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
+    comp_tile := canvas.composite_layer.tiles.data[tile_idx]
+    clear_tile(comp_tile)
+    
+    for layer, layer_idx in canvas.layer_stack {
+        layer_tile := layer.tiles.data[tile_idx]
+        // fmt.printfln("L[%v] %p (cmp: %p)", layer_idx, layer_tile, comp_tile)
+        if layer_tile != nil {
+            comp_iter := view_iter(&comp_tile.pixels)
+            tile_iter := view_iter(&layer_tile.pixels)
+            for comp_row, tile_row in view_iterate_rows_dual(&comp_iter, &tile_iter) {
+                for i in 0..<len(comp_row) {
+                    if (tile_row[i].a == 1) {
+                        comp_row[i] = tile_row[i]
+                    }
+                    else if (tile_row[i].a > 0) {
+                        dst := color.to_col32(comp_row[i])
+                        src := color.to_col32(tile_row[i])
+                        dst.rgba = dst.rgba*(1 - src.a) + src.rgba
+                        comp_row[i] = color.to_color(dst)
+                    }
+                }
+            }
+        }
+    }
 }

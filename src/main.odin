@@ -168,6 +168,17 @@ map_wheel_col_hsl :: proc "contextless" (pos: [2]f32) -> [4]f32 {
     return col
 }
 
+map_wheel_col_hsl_tohsl :: proc "contextless" (pos: [2]f32) -> color.HSL {
+    angle, l := math2.cart_to_polar(pos)
+    okhsl: color.HSL
+    okhsl.l = col_f
+    okhsl.h = angle / (math.PI*2)
+    okhsl.s = l*0.99
+
+
+    return okhsl
+}
+
 get_frame_time :: proc() -> f32 {
     return f32(f64(last_frame)/1000000)
 }
@@ -203,6 +214,13 @@ main :: proc() {
 
     //TODO remove temp canvas stuff
     main_canvas := canvas.make_canvas({256*20, 256*20})
+    bg_layer := canvas.create_layer(main_canvas)
+    canvas.fill_layer(bg_layer, color.to_linear_rgba16({0.8, 0.8, 0.8, 1}))
+    append(&main_canvas.layer_stack, bg_layer)
+    paint_layer := canvas.create_layer(main_canvas)
+    append(&main_canvas.layer_stack, paint_layer)
+    main_canvas.current_target_layer = paint_layer
+    canvas.mark_changed(main_canvas)
     
     start := time.now()
     // for t in main_canvas.composite_layer.tiles.data
@@ -699,6 +717,9 @@ main :: proc() {
             if pen_mode {
                 ok := sdl.HideCursor(); assert(ok)
             }
+            else {
+                ok := sdl.ShowCursor(); assert(ok)
+            }
             ok := sdl.SetCursor(sdl_cursor_crosshair); assert(ok)
         }
         
@@ -753,28 +774,33 @@ main :: proc() {
                 canvas.brush_dab(brush, brush_rect, sp.color, sp.alpha, layer)
             }
             if .PAINT in held_actions {
-                current, err1 := sb_get(f_stroke, 0)
-                last, err2 := sb_get(f_stroke, 1)
-                if (f_stroke.length <= 1) {
-                    brush_apply(brush_px, composite_layer, current)
-                }
-                else {
-                    distance := linalg.distance(current.canvas_pos, last.canvas_pos)
-                    size_min := min(current.size, last.size)
-                    step := max(g_tool_state.step * f32(size_min), 1)
-                    for d: f32 = max(step - f_stroke_dist_accum, 0); d < distance; d += step {
-
-                        s_point := stroke_interpolate(last, current, d / distance) if distance > 0 else current
-
-                        brush_apply(brush_px, composite_layer, s_point)
-                        f_stroke_dist_accum = distance - d
+                layer := main_canvas.current_target_layer
+                if layer.canvas == main_canvas {
+                    current, err1 := sb_get(f_stroke, 0)
+                    last, err2 := sb_get(f_stroke, 1)
+                    if (f_stroke.length <= 1) {
+                        brush_apply(brush_px, layer, current)
                     }
-                    f_stroke_dist_accum += distance
+                    else {
+                        distance := linalg.distance(current.canvas_pos, last.canvas_pos)
+                        size_min := min(current.size, last.size)
+                        step := max(g_tool_state.step * f32(size_min), 1)
+                        for d: f32 = max(step - f_stroke_dist_accum, 0); d < distance; d += step {
+    
+                            s_point := stroke_interpolate(last, current, d / distance) if distance > 0 else current
+    
+                            brush_apply(brush_px, layer, s_point)
+                            f_stroke_dist_accum = distance - d
+                        }
+                        f_stroke_dist_accum += distance
+                    }
                 }
 
                 
             }
         }
+
+        canvas.canvas_compose(main_canvas)
         // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
 
         { //update texture
@@ -893,6 +919,9 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
 
     application.text_renderer = new(Text_Renderer)
     application.text_renderer.text_engine = ttf.CreateGPUTextEngine(application.render_info.device)
+
+    application.fg_color = {0.5,0.5,0.5,1}
+    col_f = 0.5
 
     load_ui_state(application)
    

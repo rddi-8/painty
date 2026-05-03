@@ -44,11 +44,14 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
     for tile_rect, coord, idx in view_iterate(&tile_iter)
     {
         tiles := layer.tiles.data
-        tile_px := tiles[idx].pixels.data
-
-
+        
+        
         overlap := rect_intersect(tile_rect, brush_rect)
         if (!rect_is_empty(overlap)) {
+            if (tiles[idx] == nil) {
+                tiles[idx] = talloc_get(layer.tile_allocator)
+            }
+            tile_px := tiles[idx].pixels.data
 
             tb_overlap := view_overlap(tile_rect, brush_rect)
             bt_overlap := view_overlap(brush_rect, tile_rect)
@@ -68,7 +71,9 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
             for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
                 for i in 0..<width {
                     dst := color.to_col32(t[i])
+                    dst.a = dst.a*(1 - b[i]*col32.a) + b[i]*col32.a
                     dst.rgb = dst.rgb*(1 - b[i]*col32.a) + col32.rgb*b[i]*col32.a
+                    // dst.rgb *= dst.a
                     t[i] = color.to_color(dst)
                     // t[i].rgb = t[i].rgb*(1 - b[i].a) + col.rgb*b[i].a
                 }
