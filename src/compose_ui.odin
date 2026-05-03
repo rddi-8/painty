@@ -162,10 +162,16 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
             preview_color.g = u8(picked_color.g * 255)
             preview_color.b = u8(picked_color.b * 255)
             app.fg_color = picked_color
+            
         }
         else {
             fgc_ok := color.srgb_to_okhsl(app.fg_color.rgb)
             col_f = fgc_ok.l
+            if fgc_ok.s == 0 || fgc_ok.h == 0 {
+                fgc_ok.h = picked_hsl.h
+                fgc_ok.s = picked_hsl.s
+            }
+            picked_hsl = fgc_ok
             poss := math2.polar_to_cart(fgc_ok.h * math.PI * 2, fgc_ok.s)
             poss = math2.clamp_circle(poss)
             // poss = (poss+1)/2
