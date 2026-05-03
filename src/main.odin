@@ -1,5 +1,6 @@
 package main
 
+import "vendor:sdl3/image"
 import "core:thread"
 import "core:time"
 import "core:math/linalg"
@@ -931,4 +932,25 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
 
 print_sdl_err :: proc() {
     fmt.printfln("SDL Error: {}", sdl.GetError())
+}
+
+save_img :: proc(layer: canvas.Layer) {
+    image_surf := sdl.CreateSurface(i32(layer.size_px.x), i32(layer.size_px.y), .RGBA64_FLOAT)
+    t_size := layer.tile_size
+    surfs := make([dynamic]^sdl.Surface, context.temp_allocator)
+    for tile, idx in layer.tiles_rect.data {
+        tile_surf := sdl.CreateSurfaceFrom(i32(t_size), i32(t_size), .RGBA64_FLOAT, raw_data(layer.tiles.data[idx].pixels.data), i32(t_size*size_of(canvas.Pixel)))
+        append(&surfs, tile_surf)
+        blit_rect := sdl.Rect {
+            x = i32(tile.x),
+            y = i32(tile.y),
+            w = i32(tile.w),
+            h = i32(tile.h)}
+        sdl.BlitSurface(tile_surf, nil, image_surf, &blit_rect)
+    }
+    image.SavePNG(image_surf, "saved.png")
+    for s in surfs {
+        sdl.DestroySurface(s)
+    }
+    sdl.DestroySurface(image_surf)
 }

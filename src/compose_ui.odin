@@ -304,8 +304,11 @@ compose_main :: proc(app: ^Application) {
     ctn := mu.get_current_container(ctx)
     app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
 
-    mu.layout_row(ctx, {100, 100, 100, 100})
-    mu.button(ctx, "BTN1 xxxxxxxxxxxxxxxxx", .NONE, {.AUTO_SIZE})
+    mu.layout_row(ctx, {100, 100, 100, 60, 300, 100})
+
+    if .SUBMIT in mu.button(ctx, "Q. Save") {
+        save_img(app.current_canvas.composite_layer)
+    }
 
     PANELS :: "PANELS"
     if .SUBMIT in mu.button(ctx, PANELS) {
@@ -321,5 +324,18 @@ compose_main :: proc(app: ^Application) {
     if .CHANGE in mu.slider(ctx, &user_scaling, 0.5, 2.0, 0.1) {
         scale_ui(app)
     }
+
+    mu.label(ctx, "zoom:")
+    if .CHANGE in mu.slider(ctx, &view.scale, 0.05, 3, 0.01) {
+        canvas_center: [2]f32
+        canvas_center.x = f32(app.window_size.x/2)
+        canvas_center.y = f32(app.window_size.y/2)
+        view_set_pivot(&view, canvas_center)
+    }
+
+    if .SUBMIT in mu.button(ctx, "fit canvas") {
+        view_fit(&view, canvas.to_vec2f(app.current_canvas.size_px))
+    }
+
 
 }
