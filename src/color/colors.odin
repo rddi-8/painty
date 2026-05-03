@@ -78,12 +78,46 @@ to_col32 :: proc {
     color_to_col32,
 }
 
-to_linear :: proc "contextless" (c: [3]f32) -> [3]f32 {
+to_linear_rgb :: proc "contextless" (c: [3]f32) -> [3]f32 {
     return {
         srgb_to_linear(c.r),
         srgb_to_linear(c.g),
         srgb_to_linear(c.b),
     }
+}
+to_linear_rgba :: proc "contextless" (c: [4]f32) -> [4]f32 {
+    col: Color32
+	col.rgb = {
+        srgb_to_linear(c.r),
+        srgb_to_linear(c.g),
+        srgb_to_linear(c.b),
+    }
+	col.a = c.a
+	return col
+}
+to_linear_rgb16 :: proc "contextless" (c: [3]f16) -> [3]f16 {
+    return {
+        f16(srgb_to_linear(f32(c.r))),
+        f16(srgb_to_linear(f32(c.g))),
+        f16(srgb_to_linear(f32(c.b))),
+    }
+}
+to_linear_rgba16 :: proc "contextless" (c: [4]f16) -> [4]f16 {
+    col: Color32
+	col.rgb = {
+        srgb_to_linear(f32(c.r)),
+        srgb_to_linear(f32(c.g)),
+        srgb_to_linear(f32(c.b)),
+    }
+	col.a = f32(c.a)
+	return to_color(col)
+}
+
+to_linear :: proc{
+	to_linear_rgb,
+	to_linear_rgba,
+	to_linear_rgb16,
+	to_linear_rgba16,
 }
 
 to_srgb :: proc "contextless" (c: [3]f32) -> [3]f32 {

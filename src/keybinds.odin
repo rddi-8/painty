@@ -105,9 +105,8 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
     add_keybind(kb_map,
         Input_Event_Key{
             ctx = .PAINTING,
-            key = .E,
+            key = .W,
             use_repeat = true,
-            mod = {.LCTRL}
         },
         Action_Parameter{type = .ZOOM_CANVAS, value = 0.8})
 
