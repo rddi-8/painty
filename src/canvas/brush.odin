@@ -70,12 +70,11 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
             width := tb_data.width
             for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
                 for i in 0..<width {
+                    blend := b[i]*col32.a
                     dst := color.to_col32(t[i])
                     dst.a = dst.a*(1 - b[i]*col32.a) + b[i]*col32.a
-                    dst.rgb = dst.rgb*(1 - b[i]*col32.a) + col32.rgb*b[i]*col32.a
-                    // dst.rgb *= dst.a
+                    dst.rgb = dst.rgb*(1 - blend) + col32.rgb*blend
                     t[i] = color.to_color(dst)
-                    // t[i].rgb = t[i].rgb*(1 - b[i].a) + col.rgb*b[i].a
                 }
             }
             layer.canvas.tiles_changed.data[idx] = true

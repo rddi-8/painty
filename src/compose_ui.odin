@@ -167,7 +167,7 @@ compose_color_picker :: proc(app: ^Application, container_state: ^UI_Panel) {
         else {
             fgc_ok := color.srgb_to_okhsl(app.fg_color.rgb)
             col_f = fgc_ok.l
-            if fgc_ok.s == 0 || fgc_ok.h == 0 {
+            if fgc_ok.h == 0 || fgc_ok.l == 1 {
                 fgc_ok.h = picked_hsl.h
                 fgc_ok.s = picked_hsl.s
             }

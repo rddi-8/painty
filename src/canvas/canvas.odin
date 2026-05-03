@@ -168,15 +168,15 @@ canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
             tile_iter := view_iter(&layer_tile.pixels)
             for comp_row, tile_row in view_iterate_rows_dual(&comp_iter, &tile_iter) {
                 for i in 0..<len(comp_row) {
-                    if (tile_row[i].a == 1) {
-                        comp_row[i] = tile_row[i]
-                    }
-                    else if (tile_row[i].a > 0) {
+                    // if (tile_row[i].a == 1) {
+                    //     comp_row[i] = tile_row[i]
+                    // }
+                    // else if (tile_row[i].a > 0) {
                         dst := color.to_col32(comp_row[i])
                         src := color.to_col32(tile_row[i])
                         dst.rgba = dst.rgba*(1 - src.a) + src.rgba
                         comp_row[i] = color.to_color(dst)
-                    }
+                    // }
                 }
             }
         }
