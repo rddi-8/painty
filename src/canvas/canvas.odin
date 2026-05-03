@@ -12,7 +12,7 @@ import "core:container/pool"
 import "../color"
 
 MAX_SIZE :: 32768
-TILE_SIZE :: 8 * 64
+TILE_SIZE :: 8 * 32
 BLOCK_SIZE :: 8
 PIXEL_ALIGNMENT :: 64
 
@@ -83,7 +83,7 @@ make_canvas :: proc(size: [2]int) -> (canvas: ^Canvas, err: vmem.Allocator_Error
     canvas.tile_size = tile_size
     canvas.canvas_rect = recti(to_vec2i(0), size)
     w, h: = find_tile_fit(tile_size, canvas.size_px.x), find_tile_fit(tile_size, canvas.size_px.y)
-    tiles := make([dynamic]TileRect, w*h, allocator = canvas.meta_allocator)
+    tiles := make([dynamic]TileRect, w*h, allocator = canvas.meta_allocator) //TODO: change to canvas.allocator
     canvas.tiles_rect = {
         start_offset = 0,
         width = w,
@@ -91,7 +91,7 @@ make_canvas :: proc(size: [2]int) -> (canvas: ^Canvas, err: vmem.Allocator_Error
         num_rows = h,
         data = tiles[:],
     }
-    tiles_changed := make([dynamic]bool, w*h, allocator = canvas.meta_allocator)
+    tiles_changed := make([dynamic]bool, w*h, allocator = canvas.meta_allocator) //TODO: change to canvas.allocator
     canvas.tiles_changed = {
         start_offset = 0,
         width = w,
@@ -181,4 +181,9 @@ canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
             }
         }
     }
+}
+
+canvas_destroy :: proc(canvas: ^Canvas) {
+    vmem.arena_free_all(&canvas.arena)
+    free(canvas.tile_allocator, canvas.meta_allocator)
 }

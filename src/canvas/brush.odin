@@ -34,7 +34,6 @@ generate_round :: proc(buffer: []f32, size: int) -> DataView(f32) {
     return view
 }
 
-
 brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity: f32, layer: Layer) {
     tile_iter := view_iter(&layer.canvas.tiles_rect)
 
@@ -79,6 +78,73 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
             }
             layer.canvas.tiles_changed.data[idx] = true
         }
+
+    }
+}
+
+Brush_Dab_Data :: struct {
+    pos: [2]int,
+    col: [4]f32,
+    opacity: f32,
+}
+
+brush_dab_multi :: proc(brush: DataView(f32), dabs: []Brush_Dab_Data, size: int, layer: Layer) {
+    tile_iter := view_iter(&layer.canvas.tiles_rect)
+
+    // col32 := col
+    // col32.rgb = color.to_linear(col.rgb)
+    // col32.a = col.a * opacity
+    for tile_rect, coord, idx in view_iterate(&tile_iter)
+    {
+        tiles := layer.tiles.data
+        
+        for dab in dabs {
+            brush_rect := RectI{
+                pos_size = {
+                    pos = dab.pos - Vec2i{size/2, size/2},
+                    size = {size, size}
+                }
+            }
+            col32: [4]f32
+            col32.rgb = color.to_linear(dab.col.rgb)
+            col32.a = dab.col.a * dab.opacity
+
+            overlap := rect_intersect(tile_rect, brush_rect)
+            if (!rect_is_empty(overlap)) {
+                if (tiles[idx] == nil) {
+                    tiles[idx] = talloc_get(layer.tile_allocator)
+                }
+                tile_px := tiles[idx].pixels.data
+    
+                tb_overlap := view_overlap(tile_rect, brush_rect)
+                bt_overlap := view_overlap(brush_rect, tile_rect)
+                tb_data := DataView(Pixel){
+                    view = tb_overlap,
+                    data = tiles[idx].pixels.data
+                }
+                bt_data := DataView(f32){
+                    view = bt_overlap,
+                    data = brush.data
+                }
+    
+                tb_iter := view_iter(&tb_data)
+                bt_iter := view_iter(&bt_data)
+    
+                width := tb_data.width
+                for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
+                    for i in 0..<width {
+                        blend := b[i]*col32.a
+                        dst := color.to_col32(t[i])
+                        dst.a = dst.a*(1 - b[i]*col32.a) + b[i]*col32.a
+                        dst.rgb = dst.rgb*(1 - blend) + col32.rgb*blend
+                        t[i] = color.to_color(dst)
+                    }
+                }
+                layer.canvas.tiles_changed.data[idx] = true
+            }
+
+        }
+        
 
     }
 }

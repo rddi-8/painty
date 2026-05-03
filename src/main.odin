@@ -45,6 +45,7 @@ WINDOW_H :: 800
 RES_FONT :: "fonts/DroidSans.ttf"
 RES_ICON_ATLAS :: "fonts/icons.png"
 
+CANVAS_SIZE :: [2]int{256*15, 256*15}
 
 Color :: [4]f32
 Vec2 :: [2]f32
@@ -75,7 +76,11 @@ Application :: struct {
     text_renderer: ^Text_Renderer,
     ui_state: UI_State,
     fg_color: Color,
-    current_canvas: ^canvas.Canvas
+    current_canvas: ^canvas.Canvas,
+    canvas_render_tex: render.Tile_Array,
+    canvas_gpu_tiles: [dynamic]render.Vertex_Data_Tile,
+    tile_render_vb: ^render.Virtual_Buffer,
+    canvas_vbuffer: render.Buffer_Portion,
 }
 
 pen_mode: bool = false
@@ -184,6 +189,68 @@ get_frame_time :: proc() -> f32 {
     return f32(f64(last_frame)/1000000)
 }
 
+free_canvas :: proc(app: ^Application) {
+    canvas.canvas_destroy(app.current_canvas)
+    sdl.ReleaseGPUTexture(app.render_info.device, app.canvas_render_tex.backing_texture)
+    render.vbuffer_reset(app.tile_render_vb)
+    clear(&app.canvas_gpu_tiles)
+}
+
+setup_canvas :: proc(app: ^Application, size: [2]int) {
+    main_canvas := canvas.make_canvas(size)
+    bg_layer := canvas.create_layer(main_canvas)
+    canvas.fill_layer(bg_layer, color.to_linear_rgba16({0.8, 0.8, 0.8, 1}))
+    append(&main_canvas.layer_stack, bg_layer)
+    paint_layer := canvas.create_layer(main_canvas)
+    append(&main_canvas.layer_stack, paint_layer)
+    main_canvas.current_target_layer = paint_layer
+    canvas.mark_changed(main_canvas)
+
+    app.current_canvas = main_canvas
+
+    
+    view.scale = 1
+    view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
+    view_fit(&view, {f32(main_canvas.size_px.x), f32(main_canvas.size_px.y)})
+
+    tile_array, terr := render.create_tile_array(app.render_info, app.current_canvas.tile_size, len(app.current_canvas.composite_layer.tiles.data))
+    if (!terr) do log.error("Error creating canvas render texture")
+    app.canvas_render_tex = tile_array
+
+    
+    clear(&app.canvas_gpu_tiles)
+    arr_layer: u32 = 0
+    composite_layer := main_canvas.composite_layer
+    for tile in app.current_canvas.tiles_rect.data {
+        ensure(int(arr_layer) < tile_array.array_size, "Messed up texture array size")
+        pos: [2]f32 = canvas.to_vec2f(tile.pos)
+        size: [2]f32 = canvas.to_vec2f(tile.size)
+        q := render.make_quad_t(pos, pos + size, arr_layer)
+        for v in q {
+            append(&app.canvas_gpu_tiles, v)
+        }
+        // fmt.printfln("[%v]tile pos: %v", arr_layer, tile.pos)
+        arr_layer += 1
+    }
+    
+    tile_vbuffer := app.tile_render_vb
+    tile_buffer, tberr := render.vbuffer_reserve(tile_vbuffer, u32(len(app.canvas_gpu_tiles) * size_of(render.Vertex_Data_Tile)))
+    if tberr != nil {
+        log.error(tberr)
+    }
+
+    cpds := []render.Copy_Description{
+        {
+            src = {ptr = raw_data(app.canvas_gpu_tiles), size = u32(len(app.canvas_gpu_tiles) * size_of(render.Vertex_Data_Tile))},
+            dst = tile_buffer
+        }
+    }
+
+    render.vbuffer_batch_copy(app.render_info, cpds[:])
+
+    app.canvas_vbuffer = tile_buffer
+}
+
 main :: proc() {
     // spall_ctx = spall.context_create("trace_test.spall")
 	// defer spall.context_destroy(&spall_ctx)
@@ -214,14 +281,7 @@ main :: proc() {
     
 
     //TODO remove temp canvas stuff
-    main_canvas := canvas.make_canvas({256*20, 256*20})
-    bg_layer := canvas.create_layer(main_canvas)
-    canvas.fill_layer(bg_layer, color.to_linear_rgba16({0.8, 0.8, 0.8, 1}))
-    append(&main_canvas.layer_stack, bg_layer)
-    paint_layer := canvas.create_layer(main_canvas)
-    append(&main_canvas.layer_stack, paint_layer)
-    main_canvas.current_target_layer = paint_layer
-    canvas.mark_changed(main_canvas)
+    
     
     start := time.now()
     // for t in main_canvas.composite_layer.tiles.data
@@ -237,19 +297,11 @@ main :: proc() {
     brush_px := make([]f32, 1024*1024)
     brush := canvas.generate_round(brush_px, g_tool_state.size)
 
-    fillcol := make([dynamic]canvas.Pixel,main_canvas.tile_size*main_canvas.tile_size)
-    w := main_canvas.tile_size
-    s := main_canvas.tile_size
-    for i in 0..<main_canvas.tile_size*main_canvas.tile_size {
-        x := i % w
-        y := i / w
-        uv := canvas.to_vec2f({x, y})/canvas.to_vec2f(main_canvas.tile_size)
-        fillcol[i] = {f16(uv.x), f16(uv.y), 0.5, 1.0}
-    }
+
 
     f_stroke = sb_make(100)
 
-    tile_iter := canvas.view_iter(&main_canvas.tiles_rect)
+    // tile_iter := canvas.view_iter(&app.ca main_canvas.tiles_rect)
 
     brush_rect := canvas.recti({999, 777}, {g_tool_state.size, g_tool_state.size})
 
@@ -319,14 +371,9 @@ main :: proc() {
     if (sdl_cursor_crosshair == nil) do fmt.printfln("CURSOR ERROR: %v", sdl.GetError())
     ok := sdl.SetCursor(sdl_cursor_crosshair); assert(ok)
     
-    app.current_canvas = main_canvas
-    tile_array, terr := render.create_tile_array(app.render_info, main_canvas.tile_size, len(main_canvas.composite_layer.tiles.data))
+
 
     //FIXME this is here for now
-    view.scale = 1
-    view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
-    view_fit(&view, {f32(main_canvas.size_px.x), f32(main_canvas.size_px.y)})
-
     //TODO remove tile thingy
     // tt, tte := render.create_tile_atlas(app.render_info, layer.tile_size, len(layer.tiles))
 
@@ -356,74 +403,16 @@ main :: proc() {
     idxbuff := render.create_vbuffer(app.render_info.device, {.INDEX}, 30 * mem.Megabyte)
 
     tilebuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10 * mem.Megabyte)
+    
+    app.tile_render_vb = tilebuff
+    setup_canvas(app, CANVAS_SIZE)
 
-    buncha_tiles: [dynamic]render.Vertex_Data_Tile
-    arr_layer: u32 = 0
-    composite_layer := main_canvas.composite_layer
-    for tile in main_canvas.tiles_rect.data {
-        ensure(int(arr_layer) < tile_array.array_size, "Messed up texture array size")
-        pos: [2]f32 = canvas.to_vec2f(tile.pos)
-        size: [2]f32 = canvas.to_vec2f(tile.size)
-        q := render.make_quad_t(pos, pos + size, arr_layer)
-        for v in q {
-            append(&buncha_tiles, v)
-        }
-        // fmt.printfln("[%v]tile pos: %v", arr_layer, tile.pos)
-        arr_layer += 1
-    }
-    for ttt in buncha_tiles {
 
-        // fmt.println(ttt)
-    }
-
-    tilebffr, tlvberr := render.vbuffer_reserve(tilebuff, u32(len(buncha_tiles) * size_of(render.Vertex_Data_Tile)))
-    if tlvberr != nil {
-        log.error(tlvberr)
-    }
-
-    cpds := []render.Copy_Description{
-        {
-            src = {ptr = raw_data(buncha_tiles), size = u32(len(buncha_tiles) * size_of(render.Vertex_Data_Tile))},
-            dst = tilebffr
-        }
-    }
-    ttbuffer := sdl.CreateGPUTransferBuffer(app.render_info.device, {
-        size = u32(main_canvas.tile_size * main_canvas.tile_size * size_of(canvas.Pixel)),
+    tile_tr_buff := sdl.CreateGPUTransferBuffer(app.render_info.device, {
+        size = u32(app.current_canvas.tile_size * app.current_canvas.tile_size * size_of(canvas.Pixel)),
         usage = .UPLOAD,
     })
-    render.vbuffer_batch_copy(app.render_info, cpds[:])
-
-    { //populate texture
-        arr_layer: u32 = 0
-        cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
-        copy_pass := sdl.BeginGPUCopyPass(cmd)
-        for tile in composite_layer.tiles.data {
-            tile_size := main_canvas.tile_size
-            //FIXME: don't allocate million cycled transfer buffers
-            tb := sdl.MapGPUTransferBuffer(app.render_info.device, ttbuffer, true)
-            mem.copy_non_overlapping(tb, raw_data(tile.pixels.data), tile_size * tile_size * size_of(canvas.Pixel))
-            sdl.UnmapGPUTransferBuffer(app.render_info.device, ttbuffer)
-            
-            sdl.UploadToGPUTexture(copy_pass,
-            {
-                transfer_buffer = ttbuffer
-            },
-            {
-                layer = arr_layer,
-                d = 1,
-                w = u32(tile_size),
-                h = u32(tile_size),
-                texture = tile_array.backing_texture
-            }, false)
-            arr_layer += 1
-        }
-        sdl.EndGPUCopyPass(copy_pass)
-        ok := sdl.SubmitGPUCommandBuffer(cmd)
-    }
-
-
-
-    
+    // render.vbuffer_batch_copy(app.render_info, cpds[:])
 
 
 
@@ -447,7 +436,8 @@ main :: proc() {
 
         clear(&pen_motion)
 
-        fff: canvas.RectF
+        // fff: canvas.RectF
+        
         
         mouse_just_pressed = false
         clear(&actions)
@@ -681,9 +671,9 @@ main :: proc() {
             mouse = view_to_canvas(&view, mouse)
             mousei := canvas.to_vec2i(mouse)
 
-            tile_pos := canvas.match_tile_pos(main_canvas, mousei)
-            tile_idx := canvas.view_get_index(composite_layer.tiles.view, tile_pos)
-            tile := composite_layer.tiles.data[tile_idx]
+            tile_pos := canvas.match_tile_pos(app.current_canvas, mousei)
+            tile_idx := canvas.view_get_index(app.current_canvas.composite_layer.tiles.view, tile_pos)
+            tile := app.current_canvas.composite_layer.tiles.data[tile_idx]
             mousei.x = mousei.x %% tile.pixels.width
             mousei.y = mousei.y %% tile.pixels.width
             px_idx := canvas.view_get_index(tile.pixels.view, mousei)
@@ -760,7 +750,8 @@ main :: proc() {
 
 
         
-
+        main_canvas := app.current_canvas
+        composite_layer := main_canvas.composite_layer
         {
             brush_apply :: proc(buffer: []f32, layer: canvas.Layer, sp: Stroke_Point) {
                 @static size: int = 0
@@ -786,13 +777,20 @@ main :: proc() {
                         distance := linalg.distance(current.canvas_pos, last.canvas_pos)
                         size_min := min(current.size, last.size)
                         step := max(g_tool_state.step * f32(size_min), 1)
+                        brush_dabs := make([dynamic]canvas.Brush_Dab_Data, context.temp_allocator)
                         for d: f32 = max(step - f_stroke_dist_accum, 0); d < distance; d += step {
     
                             s_point := stroke_interpolate(last, current, d / distance) if distance > 0 else current
     
                             brush_apply(brush_px, layer, s_point)
+                            append(&brush_dabs, canvas.Brush_Dab_Data{
+                                col = s_point.color,
+                                opacity = s_point.alpha,
+                                pos = canvas.to_vec2i(s_point.canvas_pos)
+                            })
                             f_stroke_dist_accum = distance - d
                         }
+                        // canvas.brush_dab_multi(brush, brush_dabs[:], size_min, layer)
                         f_stroke_dist_accum += distance
                     }
                 }
@@ -805,6 +803,7 @@ main :: proc() {
         // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
 
         { //update texture
+            canvas_texture := app.canvas_render_tex.backing_texture
             arr_layer: u32 = 0
             cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
             copy_pass := sdl.BeginGPUCopyPass(cmd)
@@ -815,20 +814,20 @@ main :: proc() {
                     tile_size := main_canvas.tile_size
                     tile := main_canvas.composite_layer.tiles.data[idx]
                     //FIXME: don't allocate million cycled transfer buffers
-                    tb := sdl.MapGPUTransferBuffer(app.render_info.device, ttbuffer, true)
+                    tb := sdl.MapGPUTransferBuffer(app.render_info.device, tile_tr_buff, true)
                     mem.copy_non_overlapping(tb, raw_data(tile.pixels.data), tile_size * tile_size * size_of(canvas.Pixel))
-                    sdl.UnmapGPUTransferBuffer(app.render_info.device, ttbuffer)
+                    sdl.UnmapGPUTransferBuffer(app.render_info.device, tile_tr_buff)
                     
                     sdl.UploadToGPUTexture(copy_pass,
                     {
-                        transfer_buffer = ttbuffer
+                        transfer_buffer = tile_tr_buff
                     },
                     {
                         layer = u32(idx),
                         d = 1,
                         w = u32(tile_size),
                         h = u32(tile_size),
-                        texture = tile_array.backing_texture
+                        texture = canvas_texture
                     }, false)
                 }
             }
@@ -846,13 +845,14 @@ main :: proc() {
         render.vbuffer_reset(idxbuff)
 
         {
+            canvas_texture := app.canvas_render_tex.backing_texture
             uniform_data := render.VUB{
                 camera = render.align_matrix3(view_transform(&view)),
                 width = main_canvas.size_px.x,
                 height = main_canvas.size_px.y,
                 tile_size = main_canvas.tile_size,
             }
-            render.render_canvas(app.render_info, tile_array.backing_texture, u32(len(buncha_tiles)), &tilebffr, uniform_data, .CLEAR)
+            render.render_canvas(app.render_info, canvas_texture, u32(len(app.canvas_gpu_tiles)), &app.canvas_vbuffer, uniform_data, .CLEAR)
             render_ui(app.ui_context, app, vbuff, idxbuff)
             render.present(app.render_info)
         }

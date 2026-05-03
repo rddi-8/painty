@@ -58,6 +58,7 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.label(ctx, fmt.tprintf("MEM: %M", tracking_alloc.current_memory_allocated))
         mu.label(ctx, fmt.tprintf("CANVAS: %M", app.current_canvas.arena.total_used))
         mu.label(ctx, fmt.tprintf("canvas_size: %d x %d", app.current_canvas.size_px.x, app.current_canvas.size_px.y))
+        mu.label(ctx, fmt.tprintf("tile_size: %d x %d", app.current_canvas.tile_size, app.current_canvas.tile_size))
         mu.label(ctx, fmt.tprintf("zoom: %.2f%%", view.scale*100))
         mu.label(ctx, fmt.tprintf("pivot: (%.2f, %.2f)", view.pivot_offset.x, view.pivot_offset.y))
         mu.label(ctx, fmt.tprintf("move: (%.2f, %.2f)", view.translation.x, view.translation.y))
@@ -310,10 +311,15 @@ compose_main :: proc(app: ^Application) {
     ctn := mu.get_current_container(ctx)
     app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
 
-    mu.layout_row(ctx, {100, 100, 100, 60, 300, 100})
+    mu.layout_row(ctx, {100, 100, 100, 100, 60, 300, 100})
 
     if .SUBMIT in mu.button(ctx, "Q. Save") {
         save_img(app.current_canvas.composite_layer)
+    }
+
+    if .SUBMIT in mu.button(ctx, "New") {
+        free_canvas(app)
+        setup_canvas(app, CANVAS_SIZE)
     }
 
     PANELS :: "PANELS"
