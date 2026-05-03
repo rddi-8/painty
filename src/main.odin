@@ -640,17 +640,36 @@ main :: proc() {
         mstate := sdl.GetMouseState(&mousepos.x, &mousepos.y) 
         app.mouse_pos = canvas.to_vec2i(mousepos)
 
+        // Needs to be called only once per frame
+        mouseposrel: [2]f32
+        mrel := sdl.GetRelativeMouseState(&mouseposrel.x, &mouseposrel.y)
+
         if .PAN_CANVAS in held_actions {
-            mousepos: [2]f32
-            mrel := sdl.GetRelativeMouseState(&mousepos.x, &mousepos.y)
             if .LEFT in mrel {
                 view_tr := view_transform(&view)
                 rel_m: [3]f32
-                rel_m.xy = 2*mousepos/canvas.to_vec2f(app.window_size)
+                rel_m.xy = 2*mouseposrel/canvas.to_vec2f(app.window_size)
                 rel_m.y *= -1
                 rel_m = linalg.inverse(view_tr) * rel_m
                 view_translate(&view, -rel_m.xy)
             }
+        }
+
+
+        if .EYE_DROPPER in held_actions {
+            mouse: [2]f32
+            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+            mouse = view_to_canvas(&view, mouse)
+            mousei := canvas.to_vec2i(mouse)
+
+            tile_pos := canvas.match_tile_pos(main_canvas, mousei)
+            tile_idx := canvas.view_get_index(composite_layer.tiles.view, tile_pos)
+            tile := composite_layer.tiles.data[tile_idx]
+            mousei.x = mousei.x %% tile.pixels.width
+            mousei.y = mousei.y %% tile.pixels.width
+            px_idx := canvas.view_get_index(tile.pixels.view, mousei)
+            app.fg_color = color.to_col32(tile.pixels.data[px_idx])
+            app.fg_color.rgb = color.to_srgb(app.fg_color.rgb)
         }
 
         {
@@ -718,20 +737,7 @@ main :: proc() {
 
 
 
-        if .EYE_DROPPER in held_actions {
-            mouse: [2]f32
-            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
-            mouse = view_to_canvas(&view, mouse)
-            mousei := canvas.to_vec2i(mouse)
-
-            tile_pos := canvas.match_tile_pos(main_canvas, mousei)
-            tile_idx := canvas.view_get_index(composite_layer.tiles.view, tile_pos)
-            tile := composite_layer.tiles.data[tile_idx]
-            mousei.x = mousei.x %% tile.pixels.width
-            mousei.y = mousei.y %% tile.pixels.width
-            px_idx := canvas.view_get_index(tile.pixels.view, mousei)
-            app.fg_color = color.to_col32(tile.pixels.data[px_idx])
-        }
+        
 
         {
             brush_apply :: proc(buffer: []f32, layer: canvas.Layer, sp: Stroke_Point) {

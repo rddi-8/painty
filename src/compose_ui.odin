@@ -195,12 +195,20 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
         
         mu.layout_row(ctx, {-1})
         mu.label(ctx, "Brush Size")
-        mu.slider(ctx, &g_tool_state._size, 1, 1000, 1)
+        @static size_fine: f32
+        size_fine = g_tool_state._size
+        mu.slider(ctx, &g_tool_state._size, 2, 1000, 1)
+        if g_tool_state._size > 60 do size_fine = 60
+        if g_tool_state._size <= 60 do size_fine = g_tool_state._size
+        mu.slider(ctx, &size_fine, 2, 60, 1)
+        if size_fine < 60 do g_tool_state._size = size_fine
+  
+
         g_tool_state.size = int(g_tool_state._size)
         mu.label(ctx, "Brush Opacity")
         mu.slider(ctx, &g_tool_state.opacity, 0, 1, 0.01)
         mu.label(ctx, "Step Ratio")
-        mu.slider(ctx, &g_tool_state.step, 0.01, 10, 0.01)
+        mu.slider(ctx, &g_tool_state.step, 0.01, 2, 0.01)
         mu.layout_row(ctx, {ctn.body.w/2, ctn.body.w/2})
         mu.checkbox(ctx, "opacity",  &g_tool_state.opacity_press)
         mu.checkbox(ctx, "size",  &g_tool_state.size_press)

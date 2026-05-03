@@ -39,6 +39,7 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
     tile_iter := view_iter(&layer.canvas.tiles_rect)
 
     col32 := col
+    col32.rgb = color.to_linear(col.rgb)
     col32.a = col.a * opacity
     for tile_rect, coord, idx in view_iterate(&tile_iter)
     {
