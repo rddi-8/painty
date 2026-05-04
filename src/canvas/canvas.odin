@@ -42,6 +42,7 @@ Canvas :: struct {
     composite_layer: Layer,
     tile_allocator: ^Tile_Allocator,
     current_target_layer: Layer,
+    brush_layer: Layer,
 }
 
 
@@ -155,6 +156,38 @@ canvas_compose :: proc(canvas: ^Canvas) {
     }
 }
 
+clear_layer :: proc(layer: Layer) {
+    talloc := layer.tile_allocator
+    count := 0
+    for &tile, index in layer.tiles.data {
+        if tile != nil {
+            count += 1
+            talloc_return(talloc, tile)
+            tile = nil
+        }
+    }
+    fmt.printfln("%d tiles returned", count)
+}
+
+layer_blend :: proc(src_layer, dst_layer: Layer) {
+    for tile, index in src_layer.tiles.data {
+        if tile != nil && dst_layer.tiles.data[index] == nil {
+            dst_layer.tiles.data[index] = tile
+            src_layer.tiles.data[index] = nil
+        }
+        else if tile != nil && dst_layer.tiles.data[index] != nil {
+            src_data := tile.pixels.data
+            dst_data := dst_layer.tiles.data[index].pixels.data
+            for i in 0..<len(src_data) {
+                dst := color.to_col32(dst_data[i])
+                src := color.to_col32(src_data[i])
+                dst.rgba = dst.rgba*(1 - src.a) + src.rgba
+                // dst.rgb *= dst.a
+                dst_data[i] = color.to_color(dst)
+            }
+        }
+    }
+}
 
 canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
     comp_tile := canvas.composite_layer.tiles.data[tile_idx]
@@ -175,6 +208,7 @@ canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
                         dst := color.to_col32(comp_row[i])
                         src := color.to_col32(tile_row[i])
                         dst.rgba = dst.rgba*(1 - src.a) + src.rgba
+                        // dst.rgb *= dst.a
                         comp_row[i] = color.to_color(dst)
                     // }
                 }

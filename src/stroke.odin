@@ -7,7 +7,8 @@ import "canvas"
 Stroke_Point :: struct {
     canvas_pos: [2]f32,
     size: int,
-    alpha: f32,
+    opacity: f32,
+    flow: f32,
     time: u64,
     color: [4]f32,
 }
@@ -51,7 +52,8 @@ stroke_interpolate :: proc(a, b: Stroke_Point, t: f32) -> Stroke_Point {
         canvas_pos = math.lerp(a.canvas_pos, b.canvas_pos, t),
         size = canvas.lerpi(a.size, b.size, t),
         color = math.lerp(a.color, b.color, t),
-        alpha = math.lerp(a.alpha, b.alpha, t),
+        opacity = math.lerp(a.opacity, b.opacity, t),
+        flow = math.lerp(a.flow, b.flow, t),
         time = canvas.lerpi_u64(a.time, b.time, t),
     }
 }

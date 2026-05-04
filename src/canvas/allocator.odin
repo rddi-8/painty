@@ -1,5 +1,6 @@
 package canvas
 
+import "core:slice"
 import "core:container/queue"
 import "core:mem"
 import vmem "core:mem/virtual"
@@ -46,5 +47,6 @@ talloc_get :: proc(talloc: ^Tile_Allocator) -> ^Tile {
 }
 
 talloc_return :: proc(talloc: ^Tile_Allocator, tile: ^Tile) {
+	slice.zero(tile.pixels.data)
 	queue.push_back(&talloc.free_list, tile)
 }

@@ -301,12 +301,15 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
   
 
         g_tool_state.size = int(g_tool_state._size)
-        mu.label(ctx, "Brush Opacity")
+        mu.label(ctx, "Opacity")
         mu.slider(ctx, &g_tool_state.opacity, 0, 1, 0.01)
+        mu.label(ctx, "Flow")
+        mu.slider(ctx, &g_tool_state.flow, 0, 1, 0.01)
         mu.label(ctx, "Step Ratio")
         mu.slider(ctx, &g_tool_state.step, 0.01, 2, 0.01)
-        mu.layout_row(ctx, {ctn.body.w/2, ctn.body.w/2})
+        mu.layout_row(ctx, {ctn.body.w/3, ctn.body.w/3, -1})
         mu.checkbox(ctx, "opacity",  &g_tool_state.opacity_press)
+        mu.checkbox(ctx, "flow",  &g_tool_state.flow_press)
         mu.checkbox(ctx, "size",  &g_tool_state.size_press)
 
         BW := ctn.body.w/6 - 3
@@ -338,7 +341,7 @@ compose_main :: proc(app: ^Application) {
     ctn := mu.get_current_container(ctx)
     app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
 
-    mu.layout_row(ctx, {100, 100, 100, 100, 60, 300, 100})
+    mu.layout_row(ctx, {100, 100, 100, 100, 60, 300, 100, 100, 200})
 
     if .SUBMIT in mu.button(ctx, "Q. Save") {
         save_img(app.current_canvas.composite_layer)
@@ -375,6 +378,11 @@ compose_main :: proc(app: ^Application) {
     if .SUBMIT in mu.button(ctx, "fit canvas") {
         view_fit(&view, canvas.to_vec2f(app.current_canvas.size_px))
     }
+
+    mu.label(ctx, "pen sens:")
+    mu.slider(ctx, &f_pen_sens, 0, 2)
+
+    
 
 
 }

@@ -113,6 +113,7 @@ g_tool_state: ToolState = {
 f_pen_state: PenState
 f_stroke: ^Stroke_Buffer
 f_stroke_dist_accum: f32
+f_pen_sens: f32
 
 sdl_cursor_crosshair: ^sdl.Cursor
 
@@ -219,7 +220,10 @@ setup_canvas :: proc(app: ^Application, size: [2]int) {
     append(&main_canvas.layer_stack, bg_layer)
     paint_layer := canvas.create_layer(main_canvas)
     append(&main_canvas.layer_stack, paint_layer)
+    brush_layer := canvas.create_layer(main_canvas)
+    append(&main_canvas.layer_stack, brush_layer)
     main_canvas.current_target_layer = paint_layer
+    main_canvas.brush_layer = brush_layer
     canvas.mark_changed(main_canvas)
 
     app.current_canvas = main_canvas
@@ -649,7 +653,7 @@ main :: proc() {
                     }
                     else {
                         held_actions -= {a.type}
-                        just_released_actions -= {a.type}
+                        just_released_actions += {a.type}
                     }
                     log.debug("Held Action:", a.type, "up:", a.up)
                 case Action_BoolToggle:
@@ -735,24 +739,33 @@ main :: proc() {
 
         //MARK: update view
         
-
+        adjusted_pressure := math.clamp(f_pen_state.pressure * (1 + f_pen_sens), 0.0, 1.0)
+        
+        
         stroke_point := Stroke_Point{
             canvas_pos = f_pen_state.canvas_position,
             color = app.fg_color,
             time = f_pen_state.timestamp,
         }
         if pen_mode && (g_tool_state.size_press) {
-            stroke_point.size = int(f_pen_state.pressure * f32(g_tool_state.size))
+            stroke_point.size = int(adjusted_pressure * f32(g_tool_state.size))
         }
         else {
             stroke_point.size = g_tool_state.size
         }
 
         if pen_mode && (g_tool_state.opacity_press) {
-            stroke_point.alpha = f_pen_state.pressure * g_tool_state.opacity
+            stroke_point.opacity = adjusted_pressure * g_tool_state.opacity
         }
         else {
-            stroke_point.alpha = g_tool_state.opacity
+            stroke_point.opacity = g_tool_state.opacity
+        }
+
+        if pen_mode && (g_tool_state.flow_press) {
+            stroke_point.flow = adjusted_pressure * g_tool_state.flow
+        }
+        else {
+            stroke_point.flow = g_tool_state.flow
         }
 
         if .PAINT in held_actions && .PAN_CANVAS not_in held_actions {
@@ -779,13 +792,13 @@ main :: proc() {
                 brush_rect := canvas.RectI{
                     pos_size = {pos = canvas.to_vec2i(sp.canvas_pos) - sp.size/2, size = sp.size}
                 }
-                canvas.brush_dab(brush, brush_rect, sp.color, sp.alpha, layer)
+                canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow, layer)
             }
             metrics.brush_this_frame = false
             if .PAINT in held_actions {
                 timer_dab_s := time.now()
                 dab_count: int = 0
-                layer := main_canvas.current_target_layer
+                layer := main_canvas.brush_layer
                 if layer.canvas == main_canvas {
                     current, err1 := sb_get(f_stroke, 0)
                     last, err2 := sb_get(f_stroke, 1)
@@ -809,7 +822,7 @@ main :: proc() {
                             //     opacity = s_point.alpha,
                             //     pos = canvas.to_vec2i(s_point.canvas_pos)
                             // })
-                            // f_stroke_dist_accum = distance - d
+                            f_stroke_dist_accum = distance - d
                         }
                         // canvas.brush_dab_multi(brush, brush_dabs[:], size_min, layer)
                         f_stroke_dist_accum += distance
@@ -822,10 +835,15 @@ main :: proc() {
                     metrics.brush_render = time.diff(timer_dab_s, timer_dab_e)
                     metrics.time_per_dab = time.diff(timer_dab_s, timer_dab_e)/cast(time.Duration)dab_count
                 }
-
-                
             }
         }
+
+        if .PAINT in just_released_actions {
+            canvas.layer_blend(main_canvas.brush_layer, main_canvas.current_target_layer)
+            canvas.clear_layer(main_canvas.brush_layer)
+            fmt.println("Brushstroke commit")
+        }
+
         timer_compose_s := time.now()
         canvas.canvas_compose(main_canvas)
         timer_compose_e := time.now()
@@ -893,7 +911,7 @@ main :: proc() {
         
         free_all(context.temp_allocator)
 
-        evtm := sdl.WaitEventTimeout(nil, -1)
+        // evtm := sdl.WaitEventTimeout(nil, -1)
     }
 
    
@@ -904,9 +922,19 @@ main :: proc() {
     
 }
 
+Saved_Tool_Data :: struct {
+    tool_data: Tool_Data,
+    global_pen_sens: f32,
+}
+
 save_tool_data :: proc(app: ^Application) {
     log.info("Saving tool data")
-    if json_data, json_err := json.marshal(app.tool_data, allocator = context.temp_allocator); json_err == nil {
+    app.tool_data.presets[app.tool_data.current_preset] = g_tool_state
+    save_tool_data := Saved_Tool_Data{
+        tool_data = app.tool_data,
+        global_pen_sens = f_pen_sens
+    }
+    if json_data, json_err := json.marshal(save_tool_data, allocator = context.temp_allocator); json_err == nil {
         write_err := os.write_entire_file("user/tool_data.conf.json", json_data)
         if write_err != nil {
             log.errorf("Couldn't save tool data! Error: %v", write_err)
@@ -919,12 +947,13 @@ save_tool_data :: proc(app: ^Application) {
 load_tool_data :: proc(app: ^Application) {
     log.info("Loading tool data")
     if json_data, json_err := os.read_entire_file("user/tool_data.conf.json", context.temp_allocator); json_err == nil {
-        loaded_tool_data: Tool_Data
+        loaded_tool_data: Saved_Tool_Data
 
         if unmarshal_err := json.unmarshal(json_data, &loaded_tool_data); unmarshal_err == nil {
-            app.tool_data = loaded_tool_data
-            if loaded_tool_data.current_preset >= 0 && loaded_tool_data.current_preset < len(loaded_tool_data.presets) {
-                g_tool_state = loaded_tool_data.presets[loaded_tool_data.current_preset]
+            f_pen_sens = loaded_tool_data.global_pen_sens
+            app.tool_data = loaded_tool_data.tool_data
+            if loaded_tool_data.tool_data.current_preset >= 0 && loaded_tool_data.tool_data.current_preset < len(loaded_tool_data.tool_data.presets) {
+                g_tool_state = loaded_tool_data.tool_data.presets[loaded_tool_data.tool_data.current_preset]
             }
             log.info("Loaded previous tool data from \"tool_data.conf.json\"")
         } else {

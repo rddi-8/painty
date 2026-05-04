@@ -34,12 +34,11 @@ generate_round :: proc(buffer: []f32, size: int) -> DataView(f32) {
     return view
 }
 
-brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity: f32, layer: Layer) {
+brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity: f32, flow: f32, layer: Layer) {
     tile_iter := view_iter(&layer.canvas.tiles_rect)
-
     col32 := col
     col32.rgb = color.to_linear(col.rgb)
-    col32.a = col.a * opacity
+    // col32 *= flow
     for tile_rect, coord, idx in view_iterate(&tile_iter)
     {
         tiles := layer.tiles.data
@@ -69,10 +68,16 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
             width := tb_data.width
             for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
                 for i in 0..<width {
-                    blend := b[i]*col32.a
+                    src := b[i]*col32*flow
                     dst := color.to_col32(t[i])
-                    dst.a = dst.a*(1 - b[i]*col32.a) + b[i]*col32.a
-                    dst.rgb = dst.rgb*(1 - blend) + col32.rgb*blend
+
+                    opacity := max(dst.a, opacity)
+                    dst = src + dst*(1-src.a)
+                    if dst.a > opacity {
+                        dst.rgb = dst.rgb * (opacity / dst.a)
+                        dst.a   = opacity
+                    }
+
                     t[i] = color.to_color(dst)
                 }
             }
@@ -86,6 +91,7 @@ Brush_Dab_Data :: struct {
     pos: [2]int,
     col: [4]f32,
     opacity: f32,
+    flow: f32,
 }
 
 brush_dab_multi :: proc(brush: DataView(f32), dabs: []Brush_Dab_Data, size: int, layer: Layer) {
