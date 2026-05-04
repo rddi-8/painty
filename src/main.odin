@@ -83,6 +83,16 @@ Application :: struct {
     canvas_vbuffer: render.Buffer_Portion,
 }
 
+Metrics :: struct {
+    brush_this_frame: bool,
+    brush_render: time.Duration,
+    canvas_compose_time: time.Duration,
+    time_per_dab: time.Duration,
+    dab_count: int,
+    brush_data_rate: u64
+}
+metrics: Metrics
+
 pen_mode: bool = false
 pen_id: sdl.PenID
 
@@ -765,13 +775,17 @@ main :: proc() {
                 }
                 canvas.brush_dab(brush, brush_rect, sp.color, sp.alpha, layer)
             }
+            metrics.brush_this_frame = false
             if .PAINT in held_actions {
+                timer_dab_s := time.now()
+                dab_count: int = 0
                 layer := main_canvas.current_target_layer
                 if layer.canvas == main_canvas {
                     current, err1 := sb_get(f_stroke, 0)
                     last, err2 := sb_get(f_stroke, 1)
                     if (f_stroke.length <= 1) {
                         brush_apply(brush_px, layer, current)
+                        dab_count += 1
                     }
                     else {
                         distance := linalg.distance(current.canvas_pos, last.canvas_pos)
@@ -783,23 +797,35 @@ main :: proc() {
                             s_point := stroke_interpolate(last, current, d / distance) if distance > 0 else current
     
                             brush_apply(brush_px, layer, s_point)
-                            append(&brush_dabs, canvas.Brush_Dab_Data{
-                                col = s_point.color,
-                                opacity = s_point.alpha,
-                                pos = canvas.to_vec2i(s_point.canvas_pos)
-                            })
-                            f_stroke_dist_accum = distance - d
+                            dab_count += 1
+                            // append(&brush_dabs, canvas.Brush_Dab_Data{
+                            //     col = s_point.color,
+                            //     opacity = s_point.alpha,
+                            //     pos = canvas.to_vec2i(s_point.canvas_pos)
+                            // })
+                            // f_stroke_dist_accum = distance - d
                         }
                         // canvas.brush_dab_multi(brush, brush_dabs[:], size_min, layer)
                         f_stroke_dist_accum += distance
                     }
                 }
+                timer_dab_e := time.now()
+                metrics.dab_count = dab_count
+                if (dab_count > 0) {
+                    metrics.brush_this_frame = true
+                    metrics.brush_render = time.diff(timer_dab_s, timer_dab_e)
+                    metrics.time_per_dab = time.diff(timer_dab_s, timer_dab_e)/cast(time.Duration)dab_count
+                }
 
                 
             }
         }
-
+        timer_compose_s := time.now()
         canvas.canvas_compose(main_canvas)
+        timer_compose_e := time.now()
+        if metrics.brush_this_frame {
+            metrics.canvas_compose_time = time.diff(timer_compose_s, timer_compose_e)
+        }
         // view_fit(&view, {f32(main_canvas.size.x), f32(main_canvas.size.y)})
 
         { //update texture

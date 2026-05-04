@@ -5,12 +5,6 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
     mouse_map := &bind_list.mouse_binds
     pen_map := &bind_list.pen_binds
 
-    add_keybind(kb_map,
-        Input_Event_Key{
-            ctx = .PAINTING,
-            key = .ESCAPE,
-        },
-        Action_Simple{type = .QUIT})
 
     add_keybind(kb_map,
         Input_Event_Key{

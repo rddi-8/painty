@@ -63,6 +63,9 @@ compose_dev_panel :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.label(ctx, fmt.tprintf("pivot: (%.2f, %.2f)", view.pivot_offset.x, view.pivot_offset.y))
         mu.label(ctx, fmt.tprintf("move: (%.2f, %.2f)", view.translation.x, view.translation.y))
         mu.label(ctx, fmt.tprintf("pen: %v", pen_mode))
+        mu.label(ctx, fmt.tprintf("dab time: %v", metrics.time_per_dab))
+        mu.label(ctx, fmt.tprintf("brush: %v (%v dabs)", metrics.brush_render, metrics.dab_count))
+        mu.label(ctx, fmt.tprintf("canvas: %v", metrics.canvas_compose_time))
         mouse: [2]f32
         m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
         mouse = view_to_canvas(&view, mouse)
