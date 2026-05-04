@@ -309,6 +309,22 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.checkbox(ctx, "opacity",  &g_tool_state.opacity_press)
         mu.checkbox(ctx, "size",  &g_tool_state.size_press)
 
+        BW := ctn.body.w/6 - 3
+        mu.layout_row(ctx, {BW, BW, BW, BW, BW, -1})
+
+        for i in 0..<6 {
+            if app.tool_data.current_preset == i {
+                mu.button(ctx, fmt.tprintf("(B%d)", i+1))
+            }
+            else {
+                if .SUBMIT in mu.button(ctx, fmt.tprintf("B%d", i+1)) {
+                    app.tool_data.presets[app.tool_data.current_preset] = g_tool_state
+                    g_tool_state = app.tool_data.presets[i]
+                    app.tool_data.current_preset = i
+                }
+            }
+        }
+
     }
     // is_open^ = bool(mu.get_container(ctx, NAME).open)
 }

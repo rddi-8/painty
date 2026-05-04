@@ -67,6 +67,11 @@ UI_State :: struct {
     tool_options: UI_Panel,
     dev_panel: UI_Panel,
 }
+
+Tool_Data :: struct {
+    presets: [6]ToolState,
+    current_preset: int,
+}
 Application :: struct {
     window: ^sdl.Window,
     window_size: [2]int,
@@ -76,6 +81,7 @@ Application :: struct {
     text_renderer: ^Text_Renderer,
     ui_state: UI_State,
     fg_color: Color,
+    tool_data: Tool_Data,
     current_canvas: ^canvas.Canvas,
     canvas_render_tex: render.Tile_Array,
     canvas_gpu_tiles: [dynamic]render.Vertex_Data_Tile,
@@ -96,7 +102,7 @@ metrics: Metrics
 pen_mode: bool = false
 pen_id: sdl.PenID
 
-BRUSH_SIZE :: 16
+
 g_tool_state: ToolState = {
     _size = 16,
     size = 16,
@@ -894,13 +900,45 @@ main :: proc() {
 
     sdl.Quit()
     save_ui_state(app)
+    save_tool_data(app)
     
+}
+
+save_tool_data :: proc(app: ^Application) {
+    log.info("Saving tool data")
+    if json_data, json_err := json.marshal(app.tool_data, allocator = context.temp_allocator); json_err == nil {
+        write_err := os.write_entire_file("user/tool_data.conf.json", json_data)
+        if write_err != nil {
+            log.errorf("Couldn't save tool data! Error: %v", write_err)
+        }
+    } else {
+        log.errorf("Couldn't save tool data! Error: %v", json_err)
+    }
+}
+
+load_tool_data :: proc(app: ^Application) {
+    log.info("Loading tool data")
+    if json_data, json_err := os.read_entire_file("user/tool_data.conf.json", context.temp_allocator); json_err == nil {
+        loaded_tool_data: Tool_Data
+
+        if unmarshal_err := json.unmarshal(json_data, &loaded_tool_data); unmarshal_err == nil {
+            app.tool_data = loaded_tool_data
+            if loaded_tool_data.current_preset >= 0 && loaded_tool_data.current_preset < len(loaded_tool_data.presets) {
+                g_tool_state = loaded_tool_data.presets[loaded_tool_data.current_preset]
+            }
+            log.info("Loaded previous tool data from \"tool_data.conf.json\"")
+        } else {
+            log.errorf("Failed to load previous tool data. Error: %v", unmarshal_err)
+        }
+    } else {
+        log.debug("Failed to read \"tool_data.conf.json\". Error: &v", json_err)
+    }
 }
 
 save_ui_state :: proc(app: ^Application) {
     log.info("Saving ui state")
     if json_data, json_err := json.marshal(app.ui_state, allocator = context.temp_allocator); json_err == nil {
-        write_err := os.write_entire_file("ui_state.conf.json", json_data)
+        write_err := os.write_entire_file("user/ui_state.conf.json", json_data)
         if write_err != nil {
             log.errorf("Couldn't save ui state! Error: %v", write_err)
         }
@@ -911,7 +949,7 @@ save_ui_state :: proc(app: ^Application) {
 
 load_ui_state :: proc(app: ^Application) {
     log.info("Loading ui state")
-    if json_data, json_err := os.read_entire_file("ui_state.conf.json", context.temp_allocator); json_err == nil {
+    if json_data, json_err := os.read_entire_file("user/ui_state.conf.json", context.temp_allocator); json_err == nil {
         loaded_state: UI_State
 
         if unmarshal_err := json.unmarshal(json_data, &loaded_state); unmarshal_err == nil {
@@ -950,6 +988,8 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
     application.fg_color = {0.5,0.5,0.5,1}
     col_f = 0.5
 
+    os.make_directory("user")
+    load_tool_data(application)
     load_ui_state(application)
    
     application.ui_context = new(Ui_Context)
