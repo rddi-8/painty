@@ -75,6 +75,7 @@ Tool_Data :: struct {
 Application :: struct {
     window: ^sdl.Window,
     window_size: [2]int,
+    window_position: [2]c.int,
     mouse_pos: [2]int,
     ui_context: ^Ui_Context,
     render_info: ^render.Render_Info,
@@ -315,7 +316,7 @@ main :: proc() {
     // }
 
     brush_px := make([]f32, 1024*1024)
-    brush := canvas.generate_round(brush_px, g_tool_state.size)
+    brush := canvas.generate_round_pixel(brush_px, f32(g_tool_state.size))
 
 
 
@@ -748,10 +749,10 @@ main :: proc() {
             time = f_pen_state.timestamp,
         }
         if pen_mode && (g_tool_state.size_press) {
-            stroke_point.size = int(adjusted_pressure * f32(g_tool_state.size))
+            stroke_point.size = adjusted_pressure * f32(g_tool_state.size)
         }
         else {
-            stroke_point.size = g_tool_state.size
+            stroke_point.size = f32(g_tool_state.size)
         }
 
         if pen_mode && (g_tool_state.opacity_press) {
@@ -783,14 +784,25 @@ main :: proc() {
         composite_layer := main_canvas.composite_layer
         {
             brush_apply :: proc(buffer: []f32, layer: canvas.Layer, sp: Stroke_Point) {
-                @static size: int = 0
+                @static prev_size: f32 = 0
                 @static brush: canvas.DataView(f32)
-                if sp.size != size {
-                    brush = canvas.generate_round(buffer, sp.size)
-                    size = sp.size
+                @static prev_options: Brush_Tip_Options
+                if sp.size != prev_size || (sp.size > 1 && int(sp.size) != int(prev_size)) || g_tool_state.brush_tip_options != prev_options {
+                    switch opt in g_tool_state.brush_tip_options {
+                        case Brush_Round_Pixel_Opt:
+                            brush = canvas.generate_round_pixel(buffer, sp.size)
+                        case Brush_Round_Soft_Opt:
+                            brush = canvas.generate_round_feathered(buffer, sp.size, opt.feather, false)
+                        case Brush_Round_Feather_Opt:
+                            brush = canvas.generate_round_feathered(buffer, sp.size, opt.feather_size, true)
+                        case Brush_Round_Square_Opt:
+                            brush = canvas.generate_square(buffer, sp.size)
+                    }
+                    prev_size = sp.size
+                    prev_options = g_tool_state.brush_tip_options
                 }
                 brush_rect := canvas.RectI{
-                    pos_size = {pos = canvas.to_vec2i(sp.canvas_pos) - sp.size/2, size = sp.size}
+                    pos_size = {pos = canvas.to_vec2i(sp.canvas_pos) - brush.width/2, size = brush.width}
                 }
                 canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow, layer)
             }
@@ -916,9 +928,9 @@ main :: proc() {
 
    
 
-    sdl.Quit()
     save_ui_state(app)
     save_tool_data(app)
+    sdl.Quit()
     
 }
 
@@ -949,6 +961,7 @@ load_tool_data :: proc(app: ^Application) {
     if json_data, json_err := os.read_entire_file("user/tool_data.conf.json", context.temp_allocator); json_err == nil {
         loaded_tool_data: Saved_Tool_Data
 
+        
         if unmarshal_err := json.unmarshal(json_data, &loaded_tool_data); unmarshal_err == nil {
             f_pen_sens = loaded_tool_data.global_pen_sens
             app.tool_data = loaded_tool_data.tool_data
@@ -959,14 +972,91 @@ load_tool_data :: proc(app: ^Application) {
         } else {
             log.errorf("Failed to load previous tool data. Error: %v", unmarshal_err)
         }
+
+        jval, parse_err := json.parse(json_data, allocator = context.temp_allocator)
+        if parse_err != nil{
+            log.error(parse_err)
+        }
+        obj, ok := jval.(json.Object)
+        obj2, ok2 := obj["tool_data"].(json.Object)
+        tl, ok3 := obj2["presets"].(json.Array)
+        for tool, idx in tl {
+            t, err4 := tool.(json.Object)
+            // for k, v in t {
+            //     fmt.printfln("%v :: %v (%T)", k, v, cast(any)v)
+            //     switch a in v {
+            //         case json.Null:
+            //             fmt.println("null")
+            //         case json.Integer:
+            //             fmt.println("int")
+            //         case json.Float:
+            //             fmt.println("float")
+            //         case json.Boolean:
+            //             fmt.println("bool")
+            //         case json.String:
+            //             fmt.println("string")
+            //         case json.Array:
+            //             fmt.println("array")
+            //         case json.Object:
+            //             fmt.println("object")
+            //     }
+            // }
+
+            brush_type, err5 := t["brush_type"].(json.Float)
+            options, err6 := t["brush_tip_options"].(json.Object)
+            brush_type_enum := cast(Brush_Tip)(int(brush_type))
+            switch brush_type_enum {
+                case .UNDEFINED:
+                case .ROUND_PIXEL:
+                    opts: Brush_Round_Pixel_Opt
+                    app.tool_data.presets[idx].brush_tip_options = opts
+                case .SQUARE:
+                    opts: Brush_Round_Square_Opt
+                    app.tool_data.presets[idx].brush_tip_options = opts
+                case .ROUND_FEATHER:
+                    opts: Brush_Round_Feather_Opt
+
+                    fs, ok := options["feather_size"]
+                    if ok {
+                        opts.feather_size = f32(fs.(json.Float))
+                        app.tool_data.presets[idx].brush_tip_options = opts
+                    }
+                case .ROUND_SOFT:
+                    opts: Brush_Round_Soft_Opt
+
+                    ff, ok := options["feather"]
+                    if ok {
+                        opts.feather = f32(ff.(json.Float))
+                        app.tool_data.presets[idx].brush_tip_options = opts
+                    }
+            }
+            g_tool_state = app.tool_data.presets[app.tool_data.current_preset]
+        }
+
     } else {
         log.debug("Failed to read \"tool_data.conf.json\". Error: &v", json_err)
     }
 }
 
+Saved_UI_Config :: struct {
+    ui_state: UI_State,
+    window_size: [2]int,
+    window_position: [2]c.int,
+}
+
 save_ui_state :: proc(app: ^Application) {
     log.info("Saving ui state")
-    if json_data, json_err := json.marshal(app.ui_state, allocator = context.temp_allocator); json_err == nil {
+    saved_state: Saved_UI_Config = {
+        ui_state = app.ui_state,
+        window_position = app.window_position,
+        window_size = app.window_size,
+    }
+    win_pos: [2]c.int
+    sdl.PumpEvents()
+    err := sdl.GetWindowPosition(app.window, &win_pos.x, &win_pos.y)
+    if !err do print_sdl_err()
+    saved_state.window_position = win_pos
+    if json_data, json_err := json.marshal(saved_state, allocator = context.temp_allocator); json_err == nil {
         write_err := os.write_entire_file("user/ui_state.conf.json", json_data)
         if write_err != nil {
             log.errorf("Couldn't save ui state! Error: %v", write_err)
@@ -979,10 +1069,12 @@ save_ui_state :: proc(app: ^Application) {
 load_ui_state :: proc(app: ^Application) {
     log.info("Loading ui state")
     if json_data, json_err := os.read_entire_file("user/ui_state.conf.json", context.temp_allocator); json_err == nil {
-        loaded_state: UI_State
+        loaded_state: Saved_UI_Config
 
         if unmarshal_err := json.unmarshal(json_data, &loaded_state); unmarshal_err == nil {
-            app.ui_state = loaded_state
+            app.ui_state = loaded_state.ui_state
+            app.window_size = loaded_state.window_size
+            app.window_position = loaded_state.window_position
             log.info("Loaded previous ui state from \"ui_state.conf.json\"")
         } else {
             log.errorf("Failed to load previous ui state. Error: %v", unmarshal_err)
@@ -997,16 +1089,21 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
     if !sdl.Init({.VIDEO}) do print_sdl_err()
     if !ttf.Init() do print_sdl_err()
 
-    displays: [^]sdl.DisplayID
-    display_count: i32
-    displays = sdl.GetDisplays(&display_count)
-    window_bounds: sdl.Rect
-    sdl.GetDisplayBounds(displays[0], &window_bounds)
-    application.window = sdl.CreateWindow(name, c.int(window_w), c.int(window_h), {.RESIZABLE})
-    if application.window == nil do print_sdl_err()
+    os.make_directory("user")
+    load_tool_data(application)
+    load_ui_state(application)
 
-    application.window_size = {window_w, window_h}
-    sdl.SetWindowPosition(application.window, window_bounds.x + 500, window_bounds.y + 500)
+
+
+    if application.window_size == {0,0} {
+        application.window_size = {window_w, window_h}
+    }
+    application.window = sdl.CreateWindow(name, c.int(application.window_size.x), c.int(application.window_size.y), {.RESIZABLE})
+    if application.window == nil do print_sdl_err()
+    if application.window_position != {0,0} {
+        sdl.SetWindowPosition(application.window, c.int(application.window_position.x), c.int(application.window_position.y))
+    }
+
 
     application.render_info = new(render.Render_Info)
     render.init(application.window, application.render_info)
@@ -1017,9 +1114,6 @@ init_app :: proc(application: ^Application, window_w, window_h: int, name: cstri
     application.fg_color = {0.5,0.5,0.5,1}
     col_f = 0.5
 
-    os.make_directory("user")
-    load_tool_data(application)
-    load_ui_state(application)
    
     application.ui_context = new(Ui_Context)
     ui_init(application.ui_context, application.render_info)

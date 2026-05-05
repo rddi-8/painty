@@ -20,6 +20,8 @@ MouseState :: struct {
 }
 
 ToolState :: struct {
+    brush_type: Brush_Tip,
+    brush_tip_options: Brush_Tip_Options,
     color: Color,
     _size: f32,
     size: int,
@@ -29,4 +31,48 @@ ToolState :: struct {
     flow_press: bool,
     opacity: f32,
     opacity_press: bool,
+}
+
+Brush_Round_Pixel_Opt :: struct {
+    _: int
+}
+Brush_Round_Soft_Opt :: struct {
+    feather: f32,
+}
+Brush_Round_Feather_Opt :: struct {
+    feather_size: f32,
+}
+Brush_Round_Square_Opt :: struct {
+    _: int
+}
+
+Brush_Tip_Options :: union {
+    Brush_Round_Pixel_Opt,
+    Brush_Round_Soft_Opt,
+    Brush_Round_Feather_Opt,
+    Brush_Round_Square_Opt,
+}
+
+Brush_Tip :: enum {
+    UNDEFINED,
+    ROUND_PIXEL,
+    ROUND_SOFT,
+    ROUND_FEATHER,
+    SQUARE,
+}
+
+Brush_Tip_Names: [Brush_Tip]string = {
+    Brush_Tip.UNDEFINED = "undefined",
+    Brush_Tip.ROUND_PIXEL = "Round (Pixely)",
+    Brush_Tip.ROUND_SOFT = "Round (Soft)",
+    Brush_Tip.ROUND_FEATHER = "Round (Feather)",
+    Brush_Tip.SQUARE = "Square",
+}
+
+Brush_Tip_Opt_Map: [Brush_Tip]Brush_Tip_Options = {
+    Brush_Tip.UNDEFINED = nil,
+    Brush_Tip.ROUND_PIXEL = Brush_Round_Pixel_Opt{},
+    Brush_Tip.ROUND_SOFT = Brush_Round_Soft_Opt{},
+    Brush_Tip.ROUND_FEATHER = Brush_Round_Feather_Opt{},
+    Brush_Tip.SQUARE = Brush_Round_Square_Opt{},
 }

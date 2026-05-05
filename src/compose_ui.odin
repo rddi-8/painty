@@ -283,37 +283,14 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
     }
     mu.get_container(ctx, PANEL_NAME).open = b32(container_state.open)
     defer container_state.open = bool(mu.get_container(ctx, PANEL_NAME).open)
-    if mu.begin_window(ctx, PANEL_NAME, {200, 100, 300, 300}, {.NO_SCROLL, .ALIGN_CENTER}) {
+    if mu.begin_window(ctx, PANEL_NAME, {200, 100, 300, 300}, {.NO_SCROLL}) {
         defer mu.end_window(ctx)
         ctn := mu.get_current_container(ctx)
         container_state.rect = ctn.rect
         app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
         
-        mu.layout_row(ctx, {-1})
-        mu.label(ctx, "Brush Size")
-        @static size_fine: f32
-        size_fine = g_tool_state._size
-        mu.slider(ctx, &g_tool_state._size, 2, 1000, 1)
-        if g_tool_state._size > 60 do size_fine = 60
-        if g_tool_state._size <= 60 do size_fine = g_tool_state._size
-        mu.slider(ctx, &size_fine, 2, 60, 1)
-        if size_fine < 60 do g_tool_state._size = size_fine
-  
-
-        g_tool_state.size = int(g_tool_state._size)
-        mu.label(ctx, "Opacity")
-        mu.slider(ctx, &g_tool_state.opacity, 0, 1, 0.01)
-        mu.label(ctx, "Flow")
-        mu.slider(ctx, &g_tool_state.flow, 0, 1, 0.01)
-        mu.label(ctx, "Step Ratio")
-        mu.slider(ctx, &g_tool_state.step, 0.01, 2, 0.01)
-        mu.layout_row(ctx, {ctn.body.w/3, ctn.body.w/3, -1})
-        mu.checkbox(ctx, "opacity",  &g_tool_state.opacity_press)
-        mu.checkbox(ctx, "flow",  &g_tool_state.flow_press)
-        mu.checkbox(ctx, "size",  &g_tool_state.size_press)
-
-        BW := ctn.body.w/6 - 3
-        mu.layout_row(ctx, {BW, BW, BW, BW, BW, -1})
+        BW := ctn.body.w/6 - 6
+        mu.layout_row(ctx, {BW, BW, BW, BW, BW, -1}, i32(32*ctx.style.scale))
 
         for i in 0..<6 {
             if app.tool_data.current_preset == i {
@@ -327,6 +304,71 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                 }
             }
         }
+        
+        mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
+        mu.layout_begin_column(ctx)
+        mu.label(ctx, "Brush Size")
+        mu.checkbox(ctx, "Pressure",  &g_tool_state.size_press)
+        mu.layout_end_column(ctx)
+        mu.layout_begin_column(ctx)
+            mu.layout_row(ctx, {-1})
+            @static size_fine: f32
+            size_fine = g_tool_state._size
+            mu.slider(ctx, &g_tool_state._size, 1, 1000, 1)
+            if g_tool_state._size > 60 do size_fine = 60
+            if g_tool_state._size <= 60 do size_fine = g_tool_state._size
+            mu.slider(ctx, &size_fine, 1, 60, 1)
+            if size_fine < 60 do g_tool_state._size = size_fine
+        mu.layout_end_column(ctx)
+        g_tool_state.size = int(g_tool_state._size)
+  
+        if .ACTIVE in mu.header(ctx, "Options") {
+            mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
+            if .SUBMIT in mu.button(ctx, Brush_Tip_Names[g_tool_state.brush_type]) {
+                mu.open_popup(ctx, "Poppy")
+            }
+            popupctn := mu.get_container(ctx, "Poppy")
+            if mu.popup(ctx, "Poppy") {
+                mu.layout_row(ctx, {i32(130*ctx.style.scale)})
+                for brush_tip in Brush_Tip {
+                    if .SUBMIT in mu.button(ctx, Brush_Tip_Names[brush_tip]) {
+                        g_tool_state.brush_type = brush_tip
+                        g_tool_state.brush_tip_options = Brush_Tip_Opt_Map[brush_tip]
+                        popupctn.open = false
+                    }
+                }
+            }
+            mu.layout_begin_column(ctx)
+            switch &opt in g_tool_state.brush_tip_options {
+                case Brush_Round_Pixel_Opt:
+                case Brush_Round_Soft_Opt:
+                    mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
+                    mu.label(ctx, "softness")
+                    mu.slider(ctx, &opt.feather, 0, 1)
+                case Brush_Round_Feather_Opt:
+                    mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
+                    mu.label(ctx, "feather(px)")
+                    mu.slider(ctx, &opt.feather_size, 1, 200)
+                case Brush_Round_Square_Opt:
+            }
+            mu.layout_end_column(ctx)
+
+            mu.layout_row(ctx, {i32(100*ctx.style.scale), i32(24*ctx.style.scale), -1})
+            mu.label(ctx, "Opacity")
+            mu.checkbox(ctx, "  opacity",  &g_tool_state.opacity_press)
+            mu.slider(ctx, &g_tool_state.opacity, 0, 1, 0.01)
+            mu.label(ctx, "Flow")
+            mu.checkbox(ctx, "  flow",  &g_tool_state.flow_press)
+            mu.slider(ctx, &g_tool_state.flow, 0, 1, 0.01)
+            mu.label(ctx, "Step Ratio")
+            mu.layout_next(ctx)
+            mu.slider(ctx, &g_tool_state.step, 0.01, 2, 0.01)
+            mu.layout_row(ctx, {ctn.body.w/3, ctn.body.w/3, -1})
+            
+        }
+
+
+        ctn.rect.h = ctn.content_size.y + ctx.style.title_height + ctx.style.footer_height + ctx.style.padding + 1
 
     }
     // is_open^ = bool(mu.get_container(ctx, NAME).open)
@@ -360,7 +402,7 @@ compose_main :: proc(app: ^Application) {
         defer mu.end_popup(ctx)
         mu.checkbox(ctx, "Color Picker", &app.ui_state.color_picker.open)
         mu.checkbox(ctx, "Devvy", &app.ui_state.dev_panel.open)
-        mu.checkbox(ctx, "Devvy", &app.ui_state.tool_options.open)
+        mu.checkbox(ctx, "Brush", &app.ui_state.tool_options.open)
     }
 
     if .CHANGE in mu.slider(ctx, &user_scaling, 0.5, 2.0, 0.1) {
