@@ -21,12 +21,7 @@ generate_round_pixel :: proc(buffer: []f32, fsize: f32) -> DataView(f32) {
     }
     assert(view_size(view) <= len(buffer), "Buffer for generating brush too small")
     iter := view_iter(&view)
-    if fsize < 1 {
-        r := fsize/2
-        coverage := math.PI*r*r
-        view.data[0] = coverage
-    }
-    else if size == 1 || size == 2 {
+    if size == 1 || size == 2 {
         for row, y in view_iterate_rows(&iter) {
             for &p, x in row {
                 p = 1
@@ -78,7 +73,7 @@ generate_round_feathered :: proc(buffer: []f32, fsize: f32, feather: f32, fixed:
         feather_val = feather/(fsize/2)
         feather_val = math.saturate(1 - feather_val)
     }
-    size := max(int(fsize), 1)
+    size := max(int(fsize), 1) - (max(int(fsize), 1) % 2) + 3
     view := DataView(f32){
         data = buffer,
         start_offset = 0,
@@ -89,23 +84,40 @@ generate_round_feathered :: proc(buffer: []f32, fsize: f32, feather: f32, fixed:
     assert(view_size(view) <= len(buffer), "Buffer for generating brush too small")
     iter := view_iter(&view)
     if fsize < 1 {
+        view.stride = 1
+        view.width = 1
+        view.num_rows = 1
         r := fsize/2
         coverage := math.PI*r*r
         view.data[0] = coverage
     }
-    else {
+    else if fsize < 4 {
+        view.stride = 5
+        view.width = 5
+        view.num_rows = 5
         rad := fsize/2
         rad2 := fsize*fsize/4
         for row, y in view_iterate_rows(&iter) {
-            yf := f32(y) - rad
+            yf := f32(y) - 2
             for &p, x in row {
-                xf := f32(x) - rad
+                xf := f32(x) - 2
                 p = math.smoothstep(f32(1), feather_val, (xf*xf + yf*yf)/rad2)
-                // p = 1
+
             }
         }
     }
-    fmt.println(size)
+    else {
+        rad := fsize/2
+        rad2 := fsize*fsize/4
+        sizefh := f32(size)/2
+        for row, y in view_iterate_rows(&iter) {
+            yf := f32(y) - sizefh
+            for &p, x in row {
+                xf := f32(x) - sizefh
+                p = math.smoothstep(f32(1), feather_val, (xf*xf + yf*yf)/rad2)
+            }
+        }
+    }
     return view
 }
 

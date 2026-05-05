@@ -804,7 +804,26 @@ main :: proc() {
                 brush_rect := canvas.RectI{
                     pos_size = {pos = canvas.to_vec2i(sp.canvas_pos) - brush.width/2, size = brush.width}
                 }
-                canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow, layer)
+                if g_tool_state.multisample && sp.size < g_tool_state.multisample_range { // multi-sample
+                    dx := sp.canvas_pos.x - math.floor(sp.canvas_pos.x)
+                    dy := sp.canvas_pos.y - math.floor(sp.canvas_pos.y)
+                    px_area := canvas.RectF{xywh = {dx, dy, 1, 1}}
+                    samples: [4]canvas.RectF
+                    samples[0] = canvas.RectF{xywh = {0, 0, 1, 1}}
+                    samples[1] = canvas.RectF{xywh = {1, 0, 1, 1}}
+                    samples[2] = canvas.RectF{xywh = {0, 1, 1, 1}}
+                    samples[3] = canvas.RectF{xywh = {1, 1, 1, 1}}
+                    for smpl in samples {
+                        coverage := canvas.rect_intersect_area(px_area, smpl)
+                        brush_rect := canvas.RectI{
+                            pos_size = {pos = canvas.to_vec2i({math.floor(sp.canvas_pos.x), math.floor(sp.canvas_pos.y)}) - {1,1} + canvas.to_vec2i(smpl.pos) - brush.width/2, size = brush.width}
+                        }
+                        canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow*coverage, layer)
+                    }
+                }
+                else {
+                    canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow, layer)
+                }
             }
             metrics.brush_this_frame = false
             if .PAINT in held_actions {
@@ -821,7 +840,7 @@ main :: proc() {
                     else {
                         distance := linalg.distance(current.canvas_pos, last.canvas_pos)
                         size_min := min(current.size, last.size)
-                        step := max(g_tool_state.step * f32(size_min), 1)
+                        step := max(g_tool_state.step * f32(size_min), 0.5 if g_tool_state.multisample && size_min < 2 else 1)
                         brush_dabs := make([dynamic]canvas.Brush_Dab_Data, context.temp_allocator)
                         for d: f32 = max(step - f_stroke_dist_accum, 0); d < distance; d += step {
     

@@ -259,6 +259,11 @@ rect_intersect :: proc "contextless" (a,b: Rect($T)) -> Rect(T) {
     return {xywh = {x1, y1, x2 - x1, y2 - y1}}
 }
 
+rect_intersect_area :: proc "contextless" (a,b: Rect($T)) -> T {
+    intersect_rect := rect_intersect(a, b)
+    return intersect_rect.w * intersect_rect.h
+}
+
 rect_center :: proc "contextless" (size, center: [2]$T) -> Rect(T) {
     return {pos_size = {pos = center - size/2, size = size}}
 }

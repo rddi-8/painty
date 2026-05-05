@@ -31,6 +31,8 @@ ToolState :: struct {
     flow_press: bool,
     opacity: f32,
     opacity_press: bool,
+    multisample: bool,
+    multisample_range: f32,
 }
 
 Brush_Round_Pixel_Opt :: struct {

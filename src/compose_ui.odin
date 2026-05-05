@@ -344,11 +344,11 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                 case Brush_Round_Soft_Opt:
                     mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
                     mu.label(ctx, "softness")
-                    mu.slider(ctx, &opt.feather, 0, 1)
+                    mu.slider(ctx, &opt.feather, 0.01, 1)
                 case Brush_Round_Feather_Opt:
                     mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
                     mu.label(ctx, "feather(px)")
-                    mu.slider(ctx, &opt.feather_size, 1, 200)
+                    mu.slider(ctx, &opt.feather_size, 1, 200, 1)
                 case Brush_Round_Square_Opt:
             }
             mu.layout_end_column(ctx)
@@ -363,6 +363,9 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
             mu.label(ctx, "Step Ratio")
             mu.layout_next(ctx)
             mu.slider(ctx, &g_tool_state.step, 0.01, 2, 0.01)
+            mu.checkbox(ctx, "Multisample", &g_tool_state.multisample)
+            mu.layout_next(ctx)
+            mu.slider(ctx, &g_tool_state.multisample_range, 0.0, 100, 1)
             mu.layout_row(ctx, {ctn.body.w/3, ctn.body.w/3, -1})
             
         }
@@ -410,7 +413,7 @@ compose_main :: proc(app: ^Application) {
     }
 
     mu.label(ctx, "zoom:")
-    if .CHANGE in mu.slider(ctx, &view.scale, 0.05, 3, 0.01) {
+    if .CHANGE in mu.slider(ctx, &view.scale, 0.05, 6, 0.01) {
         canvas_center: [2]f32
         canvas_center.x = f32(app.window_size.x/2)
         canvas_center.y = f32(app.window_size.y/2)
