@@ -1,5 +1,7 @@
 package main
 
+import "canvas"
+
 PenState :: struct {
     screen_position: Vec2,
     canvas_position: Vec2,
@@ -22,6 +24,7 @@ MouseState :: struct {
 ToolState :: struct {
     brush_type: Brush_Tip,
     brush_tip_options: Brush_Tip_Options,
+    brush_mode: canvas.Brush_Mode,
     color: Color,
     _size: f32,
     size: int,

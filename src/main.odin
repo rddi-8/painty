@@ -218,6 +218,15 @@ setup_canvas :: proc(app: ^Application, size: [2]int) {
     main_canvas := canvas.make_canvas(size)
     bg_layer := canvas.create_layer(main_canvas)
     canvas.fill_layer(bg_layer, color.to_linear_rgba16({0.8, 0.8, 0.8, 1}))
+    for t in bg_layer.tiles.data
+    {
+        iter := canvas.view_iter(&t.pixels)
+        for px, coord in canvas.view_iterate_ptr(&iter) {
+            uv := canvas.to_vec2f(coord)/canvas.to_vec2f(main_canvas.tile_size)
+            px^ = {f16(uv.x), f16(uv.y), 0.5, 1.0}
+        }
+
+    }
     append(&main_canvas.layer_stack, bg_layer)
     paint_layer := canvas.create_layer(main_canvas)
     append(&main_canvas.layer_stack, paint_layer)
@@ -818,18 +827,18 @@ main :: proc() {
                         brush_rect := canvas.RectI{
                             pos_size = {pos = canvas.to_vec2i({math.floor(sp.canvas_pos.x), math.floor(sp.canvas_pos.y)}) - {1,1} + canvas.to_vec2i(smpl.pos) - brush.width/2, size = brush.width}
                         }
-                        canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow*coverage, layer)
+                        canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow*coverage, layer, g_tool_state.brush_mode)
                     }
                 }
                 else {
-                    canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow, layer)
+                    canvas.brush_dab(brush, brush_rect, sp.color, sp.opacity, sp.flow, layer, g_tool_state.brush_mode)
                 }
             }
             metrics.brush_this_frame = false
             if .PAINT in held_actions {
                 timer_dab_s := time.now()
                 dab_count: int = 0
-                layer := main_canvas.brush_layer
+                layer := main_canvas.brush_layer^
                 if layer.canvas == main_canvas {
                     current, err1 := sb_get(f_stroke, 0)
                     last, err2 := sb_get(f_stroke, 1)
@@ -870,11 +879,12 @@ main :: proc() {
         }
 
         if .PAINT in just_released_actions {
-            canvas.layer_blend(main_canvas.brush_layer, main_canvas.current_target_layer)
+            canvas.layer_blend(main_canvas.brush_layer, main_canvas.current_target_layer, g_tool_state.brush_mode)
             canvas.clear_layer(main_canvas.brush_layer)
             fmt.println("Brushstroke commit")
         }
-
+        main_canvas.brush_layer.blend_mode = g_tool_state.brush_mode
+        main_canvas.current_target_layer.blend_mode = g_tool_state.brush_mode
         timer_compose_s := time.now()
         canvas.canvas_compose(main_canvas)
         timer_compose_e := time.now()
@@ -1142,7 +1152,7 @@ print_sdl_err :: proc() {
     fmt.printfln("SDL Error: {}", sdl.GetError())
 }
 
-save_img :: proc(layer: canvas.Layer) {
+save_img :: proc(layer: ^canvas.Layer) {
     image_surf := sdl.CreateSurface(i32(layer.size_px.x), i32(layer.size_px.y), .RGBA64_FLOAT)
     t_size := layer.tile_size
     surfs := make([dynamic]^sdl.Surface, context.temp_allocator)

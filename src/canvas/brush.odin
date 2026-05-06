@@ -10,6 +10,11 @@ SPALLINF :: struct {
     spall_buffer: ^spall.Buffer,
 }
 
+Brush_Mode :: enum {
+    NORMAL,
+    ERASE,
+}
+
 generate_round_pixel :: proc(buffer: []f32, fsize: f32) -> DataView(f32) {
     size := max(int(fsize), 1)
     view := DataView(f32){
@@ -121,10 +126,11 @@ generate_round_feathered :: proc(buffer: []f32, fsize: f32, feather: f32, fixed:
     return view
 }
 
-brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity: f32, flow: f32, layer: Layer) {
+brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity: f32, flow: f32, layer: Layer, mode: Brush_Mode) {
     tile_iter := view_iter(&layer.canvas.tiles_rect)
     col32 := col
     col32.rgb = color.to_linear(col.rgb)
+    flow := flow * opacity
     // col32 *= flow
     for tile_rect, coord, idx in view_iterate(&tile_iter)
     {
@@ -153,21 +159,43 @@ brush_dab :: proc(brush: DataView(f32), brush_rect: RectI, col: [4]f32, opacity:
             bt_iter := view_iter(&bt_data)
 
             width := tb_data.width
-            for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
-                for i in 0..<width {
-                    src := b[i]*col32*flow
-                    dst := color.to_col32(t[i])
 
-                    opacity := max(dst.a, opacity)
-                    dst = src + dst*(1-src.a)
-                    if dst.a > opacity {
-                        dst.rgb = dst.rgb * (opacity / dst.a)
-                        dst.a   = opacity
+            switch mode {
+                case .NORMAL:
+                    for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
+                        for i in 0..<width {
+                            src := b[i]*col32*flow
+                            dst := color.to_col32(t[i])
+
+                            opacity := max(dst.a, opacity)
+                            dst = src + dst*(1-src.a)
+                            if dst.a > opacity {
+                                dst.rgb = dst.rgb * (opacity / dst.a)
+                                dst.a   = opacity
+                            }
+
+                            t[i] = color.to_color(dst)
+                        }
                     }
+                case .ERASE:
+                    for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
+                        for i in 0..<width {
+                            src := b[i]*col32.a*flow
+                            dst := color.to_col32(t[i])
 
-                    t[i] = color.to_color(dst)
-                }
+                            opacity := max(dst.a, opacity)
+                            dst = src + dst*(1-src)
+                            if dst.a > opacity {
+                                dst.rgb = dst.rgb * (opacity / dst.a)
+                                dst.a   = opacity
+                            }
+
+                            t[i] = color.to_color(dst)
+                        }
+                    }
             }
+
+            
             layer.canvas.tiles_changed.data[idx] = true
         }
 
@@ -181,7 +209,7 @@ Brush_Dab_Data :: struct {
     flow: f32,
 }
 
-brush_dab_multi :: proc(brush: DataView(f32), dabs: []Brush_Dab_Data, size: int, layer: Layer) {
+brush_dab_multi :: proc(brush: DataView(f32), dabs: []Brush_Dab_Data, size: int, layer: Layer, mode: Brush_Mode) {
     tile_iter := view_iter(&layer.canvas.tiles_rect)
 
     // col32 := col
@@ -224,15 +252,30 @@ brush_dab_multi :: proc(brush: DataView(f32), dabs: []Brush_Dab_Data, size: int,
                 bt_iter := view_iter(&bt_data)
     
                 width := tb_data.width
-                for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
-                    for i in 0..<width {
-                        blend := b[i]*col32.a
-                        dst := color.to_col32(t[i])
-                        dst.a = dst.a*(1 - b[i]*col32.a) + b[i]*col32.a
-                        dst.rgb = dst.rgb*(1 - blend) + col32.rgb*blend
-                        t[i] = color.to_color(dst)
-                    }
+
+                switch mode {
+                    case .NORMAL:
+                        for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
+                            for i in 0..<width {
+                                blend := b[i]*col32.a
+                                dst := color.to_col32(t[i])
+                                dst.a = dst.a*(1 - b[i]*col32.a) + b[i]*col32.a
+                                dst.rgb = dst.rgb*(1 - blend) + col32.rgb*blend
+                                t[i] = color.to_color(dst)
+                            }
+                        }
+                    case .ERASE:
+                        for t, b, row_n in view_iterate_rows_dual(&tb_iter, &bt_iter) {
+                            for i in 0..<width {
+                                blend := 1 - b[i]*col32.a
+                                dst := color.to_col32(t[i])
+                                dst *= blend
+                                t[i] = color.to_color(dst)
+                            }
+                        }
+
                 }
+
                 layer.canvas.tiles_changed.data[idx] = true
             }
 

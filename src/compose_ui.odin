@@ -293,11 +293,18 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
         mu.layout_row(ctx, {BW, BW, BW, BW, BW, -1}, i32(32*ctx.style.scale))
 
         for i in 0..<6 {
+            b_type: string
+            switch app.tool_data.presets[i].brush_mode {
+                case .NORMAL:
+                    b_type = "B"
+                case .ERASE:
+                    b_type = "E"
+            }
             if app.tool_data.current_preset == i {
-                mu.button(ctx, fmt.tprintf("(B%d)", i+1))
+                mu.button(ctx, fmt.tprintf("(%s%d)", b_type, i+1))
             }
             else {
-                if .SUBMIT in mu.button(ctx, fmt.tprintf("B%d", i+1)) {
+                if .SUBMIT in mu.button(ctx, fmt.tprintf("%s%d", b_type, i+1)) {
                     app.tool_data.presets[app.tool_data.current_preset] = g_tool_state
                     g_tool_state = app.tool_data.presets[i]
                     app.tool_data.current_preset = i
@@ -325,10 +332,10 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
         if .ACTIVE in mu.header(ctx, "Options") {
             mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
             if .SUBMIT in mu.button(ctx, Brush_Tip_Names[g_tool_state.brush_type]) {
-                mu.open_popup(ctx, "Poppy")
+                mu.open_popup(ctx, "tool_popup_tip")
             }
-            popupctn := mu.get_container(ctx, "Poppy")
-            if mu.popup(ctx, "Poppy") {
+            popupctn := mu.get_container(ctx, "tool_popup_tip")
+            if mu.popup(ctx, "tool_popup_tip") {
                 mu.layout_row(ctx, {i32(130*ctx.style.scale)})
                 for brush_tip in Brush_Tip {
                     if .SUBMIT in mu.button(ctx, Brush_Tip_Names[brush_tip]) {
@@ -353,6 +360,21 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
             }
             mu.layout_end_column(ctx)
 
+            mu.layout_row(ctx, {i32(100*ctx.style.scale), i32(100*ctx.style.scale)})
+            mu.label(ctx, "Mode")
+            if .SUBMIT in mu.button(ctx, fmt.tprintf("%s", g_tool_state.brush_mode)) {
+                mu.open_popup(ctx, "tool_popup_mode")
+            }
+            mode_popup_ctn := mu.get_container(ctx, "tool_popup_mode")
+            if mu.popup(ctx, "tool_popup_mode") {
+                mu.layout_row(ctx, {i32(130*ctx.style.scale)})
+                for mode_opt in canvas.Brush_Mode {
+                    if .SUBMIT in mu.button(ctx, fmt.tprintf("%s", mode_opt)) {
+                        g_tool_state.brush_mode = mode_opt
+                        mode_popup_ctn.open = false
+                    }
+                }
+            }
             mu.layout_row(ctx, {i32(100*ctx.style.scale), i32(24*ctx.style.scale), -1})
             mu.label(ctx, "Opacity")
             mu.checkbox(ctx, "  opacity",  &g_tool_state.opacity_press)

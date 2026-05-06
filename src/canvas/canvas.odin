@@ -38,11 +38,11 @@ Canvas :: struct {
     allocator: mem.Allocator,
     meta_allocator: mem.Allocator,
     arena: vmem.Arena,
-    layer_stack: [dynamic]Layer,
-    composite_layer: Layer,
+    layer_stack: [dynamic]^Layer,
+    composite_layer: ^Layer,
     tile_allocator: ^Tile_Allocator,
-    current_target_layer: Layer,
-    brush_layer: Layer,
+    current_target_layer: ^Layer,
+    brush_layer: ^Layer,
 }
 
 
@@ -57,6 +57,7 @@ TileRect :: RectI
 
 Layer :: struct {
     using canvas: ^Canvas,
+    blend_mode: Brush_Mode,
     tiles: DataView(^Tile),
 }
 
@@ -114,7 +115,8 @@ make_canvas :: proc(size: [2]int) -> (canvas: ^Canvas, err: vmem.Allocator_Error
     return
 }
 
-create_layer :: proc(canvas: ^Canvas) -> (layer: Layer, err: vmem.Allocator_Error) #optional_allocator_error {
+create_layer :: proc(canvas: ^Canvas) -> (layer: ^Layer, err: vmem.Allocator_Error) #optional_allocator_error {
+    layer = new(Layer)
     layer.canvas = canvas
     tiles := make([dynamic]^Tile, canvas.tiles_rect.width * canvas.tiles_rect.num_rows, allocator = canvas.meta_allocator) or_return
     layer.tiles = {
@@ -124,7 +126,7 @@ create_layer :: proc(canvas: ^Canvas) -> (layer: Layer, err: vmem.Allocator_Erro
     return layer, nil
 }
 
-fill_layer :: proc(layer: Layer, color: Pixel) {
+fill_layer :: proc(layer: ^Layer, color: Pixel) {
     tile_count := view_size(layer.tiles.view)
     talloc_reserve(layer.tile_allocator, tile_count)
     for i in 0..<tile_count {
@@ -151,12 +153,13 @@ canvas_compose :: proc(canvas: ^Canvas) {
     tile_iter := view_iter(&canvas.tiles_changed)
     for changed, coord, idx in view_iterate(&tile_iter) {
         if changed {
+            // canvas_pre_compose(canvas, idx)
             canvas_compose_tiles(canvas, idx)
         }
     }
 }
 
-clear_layer :: proc(layer: Layer) {
+clear_layer :: proc(layer: ^Layer) {
     talloc := layer.tile_allocator
     count := 0
     for &tile, index in layer.tiles.data {
@@ -169,7 +172,35 @@ clear_layer :: proc(layer: Layer) {
     fmt.printfln("%d tiles returned", count)
 }
 
-layer_blend :: proc(src_layer, dst_layer: Layer) {
+layer_blend :: proc(src_layer, dst_layer: ^Layer, mode: Brush_Mode = .NORMAL) {
+    switch mode {
+        case .NORMAL:
+            layer_blend_normal(src_layer, dst_layer)
+        case .ERASE:
+            layer_blend_erase(src_layer, dst_layer)
+    }
+}
+
+layer_blend_erase :: proc(src_layer, dst_layer: ^Layer) {
+    for tile, index in src_layer.tiles.data {
+        if tile != nil && dst_layer.tiles.data[index] == nil {
+
+        }
+        else if tile != nil && dst_layer.tiles.data[index] != nil {
+            src_data := tile.pixels.data
+            dst_data := dst_layer.tiles.data[index].pixels.data
+            for i in 0..<len(src_data) {
+                dst := color.to_col32(dst_data[i])
+                src := f32(src_data[i].a)
+                dst.rgba = dst.rgba*(1 - src)
+                // dst.rgb *= dst.a
+                dst_data[i] = color.to_color(dst)
+            }
+        }
+    }
+}
+
+layer_blend_normal :: proc(src_layer, dst_layer: ^Layer) {
     for tile, index in src_layer.tiles.data {
         if tile != nil && dst_layer.tiles.data[index] == nil {
             dst_layer.tiles.data[index] = tile
@@ -189,6 +220,34 @@ layer_blend :: proc(src_layer, dst_layer: Layer) {
     }
 }
 
+canvas_pre_compose :: proc(canvas: ^Canvas, tile_idx: int) {
+
+
+    paint_lr := canvas.current_target_layer
+    brush_lr := canvas.brush_layer
+    if brush_lr.blend_mode != .ERASE {
+        return
+    }
+    
+
+    paint_tile := paint_lr.tiles.data[tile_idx]
+    brush_tile := brush_lr.tiles.data[tile_idx]
+    // fmt.printfln("L[%v] %p (cmp: %p)", layer_idx, layer_tile, comp_tile)
+    if paint_tile != nil && brush_tile != nil {
+
+        src_data := brush_tile.pixels.data
+        dst_data := paint_tile.pixels.data
+        for i in 0..<len(src_data) {
+            dst := color.to_col32(dst_data[i])
+            src := f32(src_data[i].a)
+            dst.rgba = dst.rgba*(1 - src)
+            dst_data[i] = color.to_color(dst)
+        }
+
+        
+    }
+}
+
 canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
     comp_tile := canvas.composite_layer.tiles.data[tile_idx]
     clear_tile(comp_tile)
@@ -199,20 +258,49 @@ canvas_compose_tiles :: proc(canvas: ^Canvas, tile_idx: int) {
         if layer_tile != nil {
             comp_iter := view_iter(&comp_tile.pixels)
             tile_iter := view_iter(&layer_tile.pixels)
-            for comp_row, tile_row in view_iterate_rows_dual(&comp_iter, &tile_iter) {
-                for i in 0..<len(comp_row) {
-                    // if (tile_row[i].a == 1) {
-                    //     comp_row[i] = tile_row[i]
-                    // }
-                    // else if (tile_row[i].a > 0) {
-                        dst := color.to_col32(comp_row[i])
-                        src := color.to_col32(tile_row[i])
-                        dst.rgba = dst.rgba*(1 - src.a) + src.rgba
-                        // dst.rgb *= dst.a
-                        comp_row[i] = color.to_color(dst)
-                    // }
+            above_id := layer_idx + 1
+            // TODO un-megajank this
+            if (above_id < len(canvas.layer_stack)) {
+                if canvas.layer_stack[above_id] == canvas.brush_layer && canvas.brush_layer.blend_mode == .ERASE {
+                    brush_tile := canvas.brush_layer.tiles.data[tile_idx]
+                    if brush_tile != nil {
+                        comp_data := comp_tile.pixels.data
+                        layer_data := layer_tile.pixels.data
+                        brush_data := brush_tile.pixels.data
+                        
+                        for i in 0..<len(comp_data) {
+                            dst := color.to_col32(comp_data[i])
+                            src := color.to_col32(layer_data[i])
+                            erase_brush := f32(brush_data[i].a)
+                            src = src * (1 - erase_brush)
+                            dst.rgba = dst.rgba*(1 - src.a) + src.rgba
+                            // dst.rgb *= dst.a
+                            comp_data[i] = color.to_color(dst)
+                        }
+
+                    }
                 }
             }
+            switch layer.blend_mode {
+                case .NORMAL:
+                    for comp_row, tile_row in view_iterate_rows_dual(&comp_iter, &tile_iter) {
+                        for i in 0..<len(comp_row) {
+                            // if (tile_row[i].a == 1) {
+                            //     comp_row[i] = tile_row[i]
+                            // }
+                            // else if (tile_row[i].a > 0) {
+                                dst := color.to_col32(comp_row[i])
+                                src := color.to_col32(tile_row[i])
+                                dst.rgba = dst.rgba*(1 - src.a) + src.rgba
+                                // dst.rgb *= dst.a
+                                comp_row[i] = color.to_color(dst)
+                            // }
+                        }
+                    }
+                case .ERASE:
+                    // pass
+            }
+            
         }
     }
 }
