@@ -91,6 +91,8 @@ Application :: struct {
     canvas_vbuffer: render.Buffer_Portion,
 }
 
+brush_preview_texture: ^sdl.GPUTexture
+
 Metrics :: struct {
     brush_this_frame: bool,
     brush_render: time.Duration,
@@ -442,12 +444,21 @@ main :: proc() {
 
     tilebuff := render.create_vbuffer(app.render_info.device, {.VERTEX}, 10 * mem.Megabyte)
     
+    brush_preview_quad := render.make_quad_t({0,0}, {1,1}, 0)
+    brush_preview_vbuff, bp_err := render.vbuffer_reserve(tilebuff, len(brush_preview_quad)*size_of(render.Vertex_Data_Tile))
+    if bp_err != nil do print_sdl_err()
+    brush_preview_texture = render.create_brush_texture(app.render_info, 1024, 1024)
+
     app.tile_render_vb = tilebuff
     setup_canvas(app, CANVAS_SIZE)
 
 
     tile_tr_buff := sdl.CreateGPUTransferBuffer(app.render_info.device, {
         size = u32(app.current_canvas.tile_size * app.current_canvas.tile_size * size_of(canvas.Pixel)),
+        usage = .UPLOAD,
+    })
+    brush_tr_buff := sdl.CreateGPUTransferBuffer(app.render_info.device, {
+        size = u32(1024 * 1024 * size_of(f32)),
         usage = .UPLOAD,
     })
     // render.vbuffer_batch_copy(app.render_info, cpds[:])
@@ -945,6 +956,67 @@ main :: proc() {
             sdl.EndGPUCopyPass(copy_pass)
             ok := sdl.SubmitGPUCommandBuffer(cmd)
         }
+
+
+        { // update brush texture
+            upload_size := g_tool_state._size
+            switch opt in g_tool_state.brush_tip_options {
+                case Brush_Round_Pixel_Opt:
+                    brush = canvas.generate_round_pixel(brush.data, upload_size)
+                case Brush_Round_Soft_Opt:
+                    brush = canvas.generate_round_feathered(brush.data, upload_size, opt.feather, false)
+                case Brush_Round_Feather_Opt:
+                    brush = canvas.generate_round_feathered(brush.data, upload_size, opt.feather_size, true)
+                case Brush_Round_Square_Opt:
+                    brush = canvas.generate_square(brush.data, upload_size)
+            }
+
+            brush_preview_quad = render.make_quad_t(f_pen_state.canvas_position - g_tool_state._size/2 - {4,4}, f_pen_state.canvas_position + g_tool_state._size/2 + {4,4}, 0)
+            for &v in brush_preview_quad {
+                v.uv = v.uv*(f32(brush.width + 8)/1024)
+            }
+            
+            cpds := []render.Copy_Description{
+                {
+                    src = {ptr = raw_data(brush_preview_quad[:]), size = 6 * size_of(render.Vertex_Data_Tile)},
+                    dst = brush_preview_vbuff
+                }
+            }
+
+            render.vbuffer_batch_copy(app.render_info, cpds[:])
+            cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
+            copy_pass := sdl.BeginGPUCopyPass(cmd)
+            tb := sdl.MapGPUTransferBuffer(app.render_info.device, brush_tr_buff, true)
+            b_iter := canvas.view_iter(&brush)
+            dest_ptr := cast(^f32)(tb)
+            for row, y in canvas.view_iterate_rows(&b_iter) {
+                row_ptr := mem.ptr_offset(dest_ptr, y*(brush.width+4))          
+                mem.copy_non_overlapping(row_ptr, raw_data(row), brush.width*size_of(f32))
+                row_end := mem.ptr_offset(row_ptr, brush.width)
+                mem.zero(row_end, 4*size_of(f32))
+            }
+            block_end := mem.ptr_offset(dest_ptr, brush.width*(brush.width+4))
+            mem.zero(block_end, 4*(brush.width+4)*size_of(f32))
+            
+            sdl.UnmapGPUTransferBuffer(app.render_info.device, brush_tr_buff)
+            sdl.UploadToGPUTexture(copy_pass,
+            {
+                transfer_buffer = brush_tr_buff,
+                pixels_per_row = u32(brush.width+4),
+            },
+            {
+                layer = 0,
+                d = 1,
+                x = 4,
+                y = 4,
+                w = u32(brush.width+4),
+                h = u32(brush.width+4),
+                texture = brush_preview_texture
+            }, false)
+
+            sdl.EndGPUCopyPass(copy_pass)
+            ok := sdl.SubmitGPUCommandBuffer(cmd)
+        }
         canvas.canvas_reset_tile_state(main_canvas) 
         
        
@@ -962,8 +1034,10 @@ main :: proc() {
                 width = main_canvas.size_px.x,
                 height = main_canvas.size_px.y,
                 tile_size = main_canvas.tile_size,
+                brush_pixel_scale = view.scale,
+                uv_max = {(f32(brush.width + 8)/1024), (f32(brush.width + 8)/1024)}
             }
-            render.render_canvas(app.render_info, canvas_texture, u32(len(app.canvas_gpu_tiles)), &app.canvas_vbuffer, uniform_data, .CLEAR)
+            render.render_canvas(app.render_info, canvas_texture, brush_preview_texture, u32(len(app.canvas_gpu_tiles)), &app.canvas_vbuffer, &brush_preview_vbuff, uniform_data, .CLEAR)
             render_ui(app.ui_context, app, vbuff, idxbuff)
             render.present(app.render_info)
         }

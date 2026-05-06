@@ -58,8 +58,12 @@ Contex_Switch :: struct {
 }
 VUB :: struct {
     camera: Matrix3align,
+    brush_pixel_scale: f32,
+    _pad: f32,
+    uv_max: [2]f32,
     width, height: int,
     tile_size: int,
+    _: [12]byte,
 }
 Render_Info :: struct {
     device: ^sdl.GPUDevice,
@@ -74,6 +78,7 @@ Render_Info :: struct {
     VUB: VUB,
     pipeline_tex: ^sdl.GPUGraphicsPipeline,
     pipeline_tile: ^sdl.GPUGraphicsPipeline,
+    pipeline_brush_preview: ^sdl.GPUGraphicsPipeline,
     render_target: ^sdl.GPUTexture,
     render_target_info: sdl.GPUTextureCreateInfo,
 }
@@ -107,6 +112,8 @@ I_shader_vert := #load("shaders/shader.spv.vert")
 I_shader_frag := #load("shaders/shader.spv.frag")
 I_rect_vert := #load("shaders/rect.spv.vert")
 I_rect_frag := #load("shaders/rect.spv.frag")
+I_brush_vert := #load("shaders/brush.spv.vert")
+I_brush_frag := #load("shaders/brush.spv.frag")
 
 //MARK: INIT
 init :: proc(window: ^sdl.Window, render_info: ^Render_Info) {
@@ -209,6 +216,8 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
     frag_shader := create_shader(device, I_shader_frag, .FRAGMENT)
     vert_shader_tile := create_shader(device, I_rect_vert, .VERTEX)
     frag_shader_tile := create_shader(device, I_rect_frag, .FRAGMENT)
+    vert_shader_brush := create_shader(device, I_brush_vert, .VERTEX)
+    frag_shader_brush := create_shader(device, I_brush_frag, .FRAGMENT)
 
     //MARK: tex pipeline
     vertex_attrs_tex := []sdl.GPUVertexAttribute {
@@ -326,6 +335,43 @@ setup_pipelines :: proc(device: ^sdl.GPUDevice, render_info: ^Render_Info, swapc
         }
     )
 
+    render_info.pipeline_brush_preview = sdl.CreateGPUGraphicsPipeline(
+        device,
+        {
+            vertex_shader = vert_shader_brush,
+            fragment_shader = frag_shader_brush,
+            primitive_type = .TRIANGLELIST,
+            vertex_input_state = {
+                num_vertex_buffers = 1,
+                num_vertex_attributes = 3,
+                vertex_buffer_descriptions = raw_data([]sdl.GPUVertexBufferDescription{
+                    {
+                        slot = 0,
+                        pitch = size_of(Vertex_Data_Tile),
+                        input_rate = .VERTEX
+                    }
+                }),
+                vertex_attributes = raw_data(vertex_attrs_tile)
+            },
+            target_info = {
+                num_color_targets = 1,
+                color_target_descriptions = &sdl.GPUColorTargetDescription{
+                    format = .R16G16B16A16_FLOAT,
+                    blend_state = {
+                        enable_blend = true,
+                        color_blend_op = .ADD,
+                        alpha_blend_op = .ADD,
+                        src_color_blendfactor = .SRC_ALPHA,
+                        dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+                        src_alpha_blendfactor = .SRC_ALPHA,
+                        dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA
+                    }
+                }
+            }
+            
+        }
+    )
+
 }
 
 ptr_offset :: proc(ptr: rawptr, offset: u32) -> rawptr {
@@ -353,6 +399,19 @@ create_render_target :: proc(render_info: ^Render_Info, w, h: u32) {
     render_info.render_target = sdl.CreateGPUTexture(render_info.device, create_info)
     render_info.render_target_info = create_info
 
+}
+
+create_brush_texture :: proc(render_info: ^Render_Info, w, h: u32) -> ^sdl.GPUTexture {
+    create_info := sdl.GPUTextureCreateInfo{
+        format = .R32_FLOAT,
+        width = w,
+        height = h,
+        layer_count_or_depth = 1,
+        num_levels = 1,
+        type = .D2,
+        usage = {.SAMPLER},
+    }
+    return sdl.CreateGPUTexture(render_info.device, create_info)
 }
 
 present :: proc(render_info: ^Render_Info) {
@@ -389,7 +448,7 @@ present :: proc(render_info: ^Render_Info) {
 
 }
 
-render_canvas :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, num_verts: u32, vbuffer: ^Buffer_Portion, vub: VUB,  load: sdl.GPULoadOp) {
+render_canvas :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, brush_tex: ^sdl.GPUTexture, num_verts: u32, vbuffer: ^Buffer_Portion, brush_buff: ^Buffer_Portion, vub: VUB,  load: sdl.GPULoadOp) {
     cmd_buff := sdl.AcquireGPUCommandBuffer(render_info.device)
     sdl.PushGPUDebugGroup(cmd_buff, "Canvas")
 
@@ -420,13 +479,47 @@ render_canvas :: proc(render_info: ^Render_Info, tex: ^sdl.GPUTexture, num_verts
                 texture = tex,
                 sampler = render_info.canvas_sampler
             },
+            {
+                texture = brush_tex,
+                sampler = render_info.canvas_sampler
+            },
 
-        }), 1)
+        }), 2)
     
     uniform_data := vub
     sdl.PushGPUVertexUniformData(cmd_buff, 0, &uniform_data, size_of(vub))
 
     sdl.DrawGPUPrimitives(render_pass, num_verts, 1, 0, 0)
+
+    sdl.BindGPUGraphicsPipeline(render_pass, render_info.pipeline_brush_preview)
+    sdl.BindGPUVertexBuffers(render_pass, 0,
+        raw_data([]sdl.GPUBufferBinding{
+            {
+                buffer = brush_buff.vbuffer.buffer,
+                offset = brush_buff.offset,
+            }
+        }), 1)
+
+    sdl.BindGPUFragmentSamplers(render_pass, 0,
+        raw_data([]sdl.GPUTextureSamplerBinding{
+            {
+                texture = tex,
+                sampler = render_info.canvas_sampler
+            },
+            {
+                texture = brush_tex,
+                sampler = render_info.canvas_sampler
+            },
+
+        }), 2)
+
+
+
+    sdl.PushGPUVertexUniformData(cmd_buff, 0, &uniform_data, size_of(vub))
+    sdl.PushGPUFragmentUniformData(cmd_buff, 0, &uniform_data, size_of(vub))
+
+    sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, 0)
+
     sdl.EndGPURenderPass(render_pass)
 
     sdl.PopGPUDebugGroup(cmd_buff)
