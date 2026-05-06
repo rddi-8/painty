@@ -119,6 +119,7 @@ g_tool_state: ToolState = {
     opacity = 1,
     step = 0.05
 }
+g_last_tool: ToolState
 f_pen_state: PenState
 f_stroke: ^Stroke_Buffer
 f_stroke_dist_accum: f32
@@ -228,15 +229,15 @@ setup_canvas :: proc(app: ^Application, size: [2]int) {
     main_canvas := canvas.make_canvas(size)
     bg_layer := canvas.create_layer(main_canvas)
     canvas.fill_layer(bg_layer, color.to_linear_rgba16({0.8, 0.8, 0.8, 1}))
-    for t in bg_layer.tiles.data
-    {
-        iter := canvas.view_iter(&t.pixels)
-        for px, coord in canvas.view_iterate_ptr(&iter) {
-            uv := canvas.to_vec2f(coord)/canvas.to_vec2f(main_canvas.tile_size)
-            px^ = {f16(uv.x), f16(uv.y), 0.5, 1.0}
-        }
+    // for t in bg_layer.tiles.data
+    // {
+    //     iter := canvas.view_iter(&t.pixels)
+    //     for px, coord in canvas.view_iterate_ptr(&iter) {
+    //         uv := canvas.to_vec2f(coord)/canvas.to_vec2f(main_canvas.tile_size)
+    //         px^ = {f16(uv.x), f16(uv.y), 0.5, 1.0}
+    //     }
 
-    }
+    // }
     append(&main_canvas.layer_stack, bg_layer)
     paint_layer := canvas.create_layer(main_canvas)
     append(&main_canvas.layer_stack, paint_layer)
@@ -958,7 +959,7 @@ main :: proc() {
         }
 
 
-        { // update brush texture
+        if g_tool_state != g_last_tool { // update brush texture
             upload_size := g_tool_state._size
             switch opt in g_tool_state.brush_tip_options {
                 case Brush_Round_Pixel_Opt:
@@ -971,24 +972,13 @@ main :: proc() {
                     brush = canvas.generate_square(brush.data, upload_size)
             }
 
-            brush_preview_quad = render.make_quad_t(f_pen_state.canvas_position - g_tool_state._size/2 - {4,4}, f_pen_state.canvas_position + g_tool_state._size/2 + {4,4}, 0)
-            for &v in brush_preview_quad {
-                v.uv = v.uv*(f32(brush.width + 8)/1024)
-            }
             
-            cpds := []render.Copy_Description{
-                {
-                    src = {ptr = raw_data(brush_preview_quad[:]), size = 6 * size_of(render.Vertex_Data_Tile)},
-                    dst = brush_preview_vbuff
-                }
-            }
-
-            render.vbuffer_batch_copy(app.render_info, cpds[:])
             cmd := sdl.AcquireGPUCommandBuffer(app.render_info.device)
             copy_pass := sdl.BeginGPUCopyPass(cmd)
             tb := sdl.MapGPUTransferBuffer(app.render_info.device, brush_tr_buff, true)
             b_iter := canvas.view_iter(&brush)
             dest_ptr := cast(^f32)(tb)
+            // silly pointer memy, hopefully it doesn't break
             for row, y in canvas.view_iterate_rows(&b_iter) {
                 row_ptr := mem.ptr_offset(dest_ptr, y*(brush.width+4))          
                 mem.copy_non_overlapping(row_ptr, raw_data(row), brush.width*size_of(f32))
@@ -1017,6 +1007,24 @@ main :: proc() {
             sdl.EndGPUCopyPass(copy_pass)
             ok := sdl.SubmitGPUCommandBuffer(cmd)
         }
+
+        { // place brush preview
+            brush_preview_quad = render.make_quad_t(f_pen_state.canvas_position - g_tool_state._size/2 - {4,4}, f_pen_state.canvas_position + g_tool_state._size/2 + {4,4}, 0)
+            for &v in brush_preview_quad {
+                v.uv = v.uv*(f32(brush.width + 8)/1024)
+            }
+            
+            cpds := []render.Copy_Description{
+                {
+                    src = {ptr = raw_data(brush_preview_quad[:]), size = 6 * size_of(render.Vertex_Data_Tile)},
+                    dst = brush_preview_vbuff
+                }
+            }
+
+            render.vbuffer_batch_copy(app.render_info, cpds[:])
+        }
+
+        g_last_tool = g_tool_state
         canvas.canvas_reset_tile_state(main_canvas) 
         
        
