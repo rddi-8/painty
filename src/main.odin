@@ -242,6 +242,7 @@ restack_layers :: proc(app: ^Application, current_layer: Layer_Kind) {
 
     for layer, kind in app.paint_layers {
         append(&the_canvas.layer_stack, layer)
+        layer.blend_mode = .NORMAL
         if kind == current_layer {
             append(&the_canvas.layer_stack, brush_lr)
             the_canvas.current_target_layer = layer
