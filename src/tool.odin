@@ -25,6 +25,7 @@ ToolState :: struct {
     brush_type: Brush_Tip,
     brush_tip_options: Brush_Tip_Options,
     brush_mode: canvas.Brush_Mode,
+    bound_layer: Layer_Kind,
     alt_brush: int,
     color: Color,
     _size: f32,

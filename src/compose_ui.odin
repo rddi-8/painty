@@ -400,6 +400,21 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                     }
                 }
             }
+            mu.label(ctx, "Bound Layer")
+            if .SUBMIT in mu.button(ctx, fmt.tprintf("%s", g_tool_state.bound_layer)) {
+                mu.open_popup(ctx, "tool_popup_bound_layer")
+            }
+            boundlayer_popup := mu.get_container(ctx, "tool_popup_bound_layer")
+            if mu.popup(ctx, "tool_popup_bound_layer") {
+                mu.layout_row(ctx, {i32(130*ctx.style.scale)})
+                for layer_kind in Layer_Kind {
+                    
+                    if .SUBMIT in mu.button(ctx, fmt.tprintf("%s", layer_kind)) {
+                        g_tool_state.bound_layer = layer_kind
+                        boundlayer_popup.open = false
+                    }
+                }
+            }
             mu.layout_row(ctx, {i32(100*ctx.style.scale), i32(24*ctx.style.scale), -1})
             mu.label(ctx, "Opacity")
             mu.checkbox(ctx, "  opacity",  &g_tool_state.opacity_press)

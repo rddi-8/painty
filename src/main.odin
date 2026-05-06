@@ -84,11 +84,21 @@ Application :: struct {
     fg_color: Color,
     tool_data: Tool_Data,
     alt_tool_state: Alt_Tool_Toggle,
+    paint_layers: [Layer_Kind]^canvas.Layer,
     current_canvas: ^canvas.Canvas,
     canvas_render_tex: render.Tile_Array,
     canvas_gpu_tiles: [dynamic]render.Vertex_Data_Tile,
     tile_render_vb: ^render.Virtual_Buffer,
     canvas_vbuffer: render.Buffer_Portion,
+}
+
+Layer_Kind :: enum {
+    BACKGROUND,
+    UNDERPAINT,
+    SKETCH,
+    PAINT,
+    LINE,
+    OVERLAY
 }
 
 brush_preview_texture: ^sdl.GPUTexture
@@ -225,6 +235,22 @@ free_canvas :: proc(app: ^Application) {
     clear(&app.canvas_gpu_tiles)
 }
 
+restack_layers :: proc(app: ^Application, current_layer: Layer_Kind) {
+    the_canvas := app.current_canvas
+    brush_lr := the_canvas.brush_layer
+    clear(&the_canvas.layer_stack)
+
+    for layer, kind in app.paint_layers {
+        append(&the_canvas.layer_stack, layer)
+        if kind == current_layer {
+            append(&the_canvas.layer_stack, brush_lr)
+            the_canvas.current_target_layer = layer
+        }
+    }
+}
+
+
+
 setup_canvas :: proc(app: ^Application, size: [2]int) {
     main_canvas := canvas.make_canvas(size)
     bg_layer := canvas.create_layer(main_canvas)
@@ -249,6 +275,15 @@ setup_canvas :: proc(app: ^Application, size: [2]int) {
 
     app.current_canvas = main_canvas
 
+    app.paint_layers = {
+        Layer_Kind.BACKGROUND = bg_layer,
+        Layer_Kind.UNDERPAINT = canvas.create_layer(main_canvas),
+        Layer_Kind.SKETCH = canvas.create_layer(main_canvas),
+        Layer_Kind.PAINT = paint_layer,
+        Layer_Kind.LINE = canvas.create_layer(main_canvas),
+        Layer_Kind.OVERLAY = canvas.create_layer(main_canvas),
+    }
+    restack_layers(app, g_tool_state.bound_layer)
     
     view.scale = 1
     view.screen = {f32(app.window_size.x), f32(app.window_size.y)}
@@ -818,7 +853,11 @@ main :: proc() {
             f_stroke_dist_accum = 0
         }
 
-
+        if g_tool_state != g_last_tool {
+            if !app.alt_tool_state.active {
+                restack_layers(app, g_tool_state.bound_layer)
+            }
+        }
 
         
         main_canvas := app.current_canvas
@@ -913,7 +952,7 @@ main :: proc() {
         if .PAINT in just_released_actions {
             canvas.layer_blend(main_canvas.brush_layer, main_canvas.current_target_layer, g_tool_state.brush_mode)
             canvas.clear_layer(main_canvas.brush_layer)
-            fmt.println("Brushstroke commit")
+            // fmt.println("Brushstroke commit")
         }
         main_canvas.brush_layer.blend_mode = g_tool_state.brush_mode
         main_canvas.current_target_layer.blend_mode = g_tool_state.brush_mode

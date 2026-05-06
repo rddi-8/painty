@@ -169,7 +169,7 @@ clear_layer :: proc(layer: ^Layer) {
             tile = nil
         }
     }
-    fmt.printfln("%d tiles returned", count)
+    // fmt.printfln("%d tiles returned", count)
 }
 
 layer_blend :: proc(src_layer, dst_layer: ^Layer, mode: Brush_Mode = .NORMAL) {
