@@ -173,7 +173,7 @@ render_ui :: proc(ui_ctx: ^Ui_Context, app: ^Application, vb: ^render.Virtual_Bu
     mu_ctx := ui_ctx.mu_context
     clear(&ui_ctx.rect_list)
 
-    raw_tb := sdl.MapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff, false)
+    raw_tb := sdl.MapGPUTransferBuffer(app.render_info.device, app.render_info.transfer_buff, true)
     vf: Vertex_Feeder
     defer delete(vf.context_switches)
     vf.vertices = ([^]render.Vertex_Data)(raw_tb)
