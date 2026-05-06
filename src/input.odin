@@ -49,6 +49,7 @@ Action_Held_Enum :: enum {
     DRAG_BRUSH_OPACITY,
     PAINT,
     PAN_CANVAS,
+    TOGGLE_ALT_BRUSH,
 }
 Action_Held :: struct {
     type: Action_Held_Enum,

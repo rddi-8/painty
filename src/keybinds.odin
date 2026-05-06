@@ -28,6 +28,14 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
     add_keybind(kb_map,
         Input_Event_Key{
             ctx = .PAINTING,
+            key = .LSHIFT,
+            mod = {.LSHIFT}
+        },
+        Action_Held{type = .TOGGLE_ALT_BRUSH})
+
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
             key = .LALT,
             mod = {.LALT}
         },

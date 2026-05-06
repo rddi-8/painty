@@ -83,6 +83,7 @@ Application :: struct {
     ui_state: UI_State,
     fg_color: Color,
     tool_data: Tool_Data,
+    alt_tool_state: Alt_Tool_Toggle,
     current_canvas: ^canvas.Canvas,
     canvas_render_tex: render.Tile_Array,
     canvas_gpu_tiles: [dynamic]render.Vertex_Data_Tile,
@@ -103,6 +104,11 @@ metrics: Metrics
 pen_mode: bool = false
 pen_id: sdl.PenID
 
+Alt_Tool_Toggle :: struct {
+    active: bool,
+    alt_tool: ToolState,
+    original_tool: ToolState,
+}
 
 g_tool_state: ToolState = {
     _size = 16,
@@ -115,6 +121,8 @@ f_pen_state: PenState
 f_stroke: ^Stroke_Buffer
 f_stroke_dist_accum: f32
 f_pen_sens: f32
+
+
 
 sdl_cursor_crosshair: ^sdl.Cursor
 
@@ -692,6 +700,18 @@ main :: proc() {
                 rel_m = linalg.inverse(view_tr) * rel_m
                 view_translate(&view, -rel_m.xy)
             }
+        }
+
+        if .TOGGLE_ALT_BRUSH in just_pressed_actions {
+            app.alt_tool_state.active = true
+            alt_tool := app.tool_data.presets[g_tool_state.alt_brush]
+            app.alt_tool_state.alt_tool = alt_tool
+            app.alt_tool_state.original_tool = g_tool_state
+            g_tool_state = alt_tool
+        }
+        if .TOGGLE_ALT_BRUSH in just_released_actions {
+            app.alt_tool_state.active = false
+            g_tool_state = app.alt_tool_state.original_tool
         }
 
 

@@ -300,7 +300,10 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                 case .ERASE:
                     b_type = "E"
             }
-            if app.tool_data.current_preset == i {
+            if app.alt_tool_state.active && app.alt_tool_state.original_tool.alt_brush == i {
+                mu.button(ctx, fmt.tprintf(">%s%d<", b_type, i+1))
+            }
+            else if app.tool_data.current_preset == i {
                 mu.button(ctx, fmt.tprintf("(%s%d)", b_type, i+1))
             }
             else {
@@ -360,7 +363,7 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
             }
             mu.layout_end_column(ctx)
 
-            mu.layout_row(ctx, {i32(100*ctx.style.scale), i32(100*ctx.style.scale)})
+            mu.layout_row(ctx, {i32(120*ctx.style.scale), i32(100*ctx.style.scale)})
             mu.label(ctx, "Mode")
             if .SUBMIT in mu.button(ctx, fmt.tprintf("%s", g_tool_state.brush_mode)) {
                 mu.open_popup(ctx, "tool_popup_mode")
@@ -372,6 +375,28 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                     if .SUBMIT in mu.button(ctx, fmt.tprintf("%s", mode_opt)) {
                         g_tool_state.brush_mode = mode_opt
                         mode_popup_ctn.open = false
+                    }
+                }
+            }
+            mu.label(ctx, "Alt Brush")
+            target_brush := app.tool_data.presets[g_tool_state.alt_brush]
+            if .SUBMIT in mu.button(ctx, fmt.tprintf(">> B%d" if target_brush.brush_mode == .NORMAL else ">> E%d", g_tool_state.alt_brush + 1)) {
+                mu.open_popup(ctx, "tool_popup_alt_brush")
+            }
+            btoggle_popup_ctn := mu.get_container(ctx, "tool_popup_alt_brush")
+            if mu.popup(ctx, "tool_popup_alt_brush") {
+                mu.layout_row(ctx, {i32(130*ctx.style.scale)})
+                for b_id in 0..<len(app.tool_data.presets) {
+                    b_type: string
+                    switch app.tool_data.presets[b_id].brush_mode {
+                        case .NORMAL:
+                            b_type = "B"
+                        case .ERASE:
+                            b_type = "E"
+                    }
+                    if .SUBMIT in mu.button(ctx, fmt.tprintf(">> %s%d", b_type, b_id + 1)) {
+                        g_tool_state.alt_brush = b_id
+                        btoggle_popup_ctn.open = false
                     }
                 }
             }
