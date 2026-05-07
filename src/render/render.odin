@@ -421,6 +421,8 @@ present :: proc(render_info: ^Render_Info) {
     swapchain_tex: ^sdl.GPUTexture
     swapchain_size: SizeU32
     ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buff, render_info.window, &swapchain_tex, &swapchain_size.w, &swapchain_size.h); assert(ok)
+    if !ok do print_err()
+    if swapchain_tex == nil do return
 
     rt := render_info.render_target
     rti := render_info.render_target_info
