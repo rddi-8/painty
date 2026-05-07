@@ -69,7 +69,7 @@ UI_State :: struct {
 }
 
 Tool_Data :: struct {
-    presets: [6]ToolState,
+    presets: [12]ToolState,
     current_preset: int,
 }
 Application :: struct {

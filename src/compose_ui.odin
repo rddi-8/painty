@@ -290,9 +290,9 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
         app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
         
         BW := ctn.body.w/6 - 6
-        mu.layout_row(ctx, {BW, BW, BW, BW, BW, -1}, i32(32*ctx.style.scale))
+        mu.layout_row(ctx, {BW, BW, BW, BW, BW, -1}, i32(54*ctx.style.scale))
 
-        for i in 0..<6 {
+        for i in 0..<12 {
             b_type: string
             switch app.tool_data.presets[i].brush_mode {
                 case .NORMAL:
@@ -300,6 +300,8 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                 case .ERASE:
                     b_type = "E"
             }
+            mu.begin_panel(ctx, "p", {.NO_SCROLL, .AUTO_SIZE,.ALIGN_CENTER})
+            mu.layout_row(ctx, {-1}, i32(32*ctx.style.scale))
             if app.alt_tool_state.active && app.alt_tool_state.original_tool.alt_brush == i {
                 mu.button(ctx, fmt.tprintf(">%s%d<", b_type, i+1))
             }
@@ -313,6 +315,15 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                     app.tool_data.current_preset = i
                 }
             }
+            lbl_rect := mu.layout_next(ctx)
+            lbl_rect.y -= i32(ctx.style.scale*10)
+            mu.layout_set_next(ctx, lbl_rect, false)
+            if app.tool_data.current_preset == i {
+                mu.label(ctx, fmt.tprintf("%s", g_tool_state.bound_layer))
+            } else {
+                mu.label(ctx, fmt.tprintf("%s", app.tool_data.presets[i].bound_layer))
+            }
+            mu.end_panel(ctx)
         }
         
         mu.layout_row(ctx, {i32(100*ctx.style.scale), -1})
