@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:math/linalg"
 Canvas_View :: struct {
     translation: [2]f32,
@@ -7,6 +8,7 @@ Canvas_View :: struct {
     angle: f32,
     scale: f32,
     screen: [2]f32,
+    flip: bool,
 }
 
 matrix3_translate :: proc(x, y: f32) -> linalg.Matrix3f32 {
@@ -24,8 +26,10 @@ view_transform :: proc(view: ^Canvas_View) -> Transform {
     screen_offset := matrix3_translate(-view.screen.x/2, -view.screen.y/2)
     canvas_translate := matrix3_translate(view.translation.x, view.translation.y)
     pivot_offset := matrix3_translate(-view.pivot_offset.x, -view.pivot_offset.y)
+
+    flip := linalg.matrix3_scale_f32({-1 if view.flip else 1, 1, 1})
     
-    return screen_scale * screen_offset * canvas_translate * rotation * scale * pivot_offset
+    return  screen_scale * screen_offset * canvas_translate * flip * rotation * scale * pivot_offset
 }
 
 view_translate :: proc(view: ^Canvas_View, translate: [2]f32) {
@@ -34,6 +38,10 @@ view_translate :: proc(view: ^Canvas_View, translate: [2]f32) {
 
 view_rotate :: proc(view: ^Canvas_View, angle: f32) {
     view.angle += angle
+}
+
+view_flip :: proc(view: ^Canvas_View) {
+    view.flip = !view.flip
 }
 
 view_scale :: proc(view: ^Canvas_View, scale: f32) {

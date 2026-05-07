@@ -231,7 +231,8 @@ get_frame_time :: proc() -> f32 {
 free_canvas :: proc(app: ^Application) {
     canvas.canvas_destroy(app.current_canvas)
     sdl.ReleaseGPUTexture(app.render_info.device, app.canvas_render_tex.backing_texture)
-    render.vbuffer_reset(app.tile_render_vb)
+    //TODO: mamange gpu buffers better
+    // render.vbuffer_reset(app.tile_render_vb)
     clear(&app.canvas_gpu_tiles)
 }
 
@@ -311,6 +312,7 @@ setup_canvas :: proc(app: ^Application, size: [2]int) {
     }
     
     tile_vbuffer := app.tile_render_vb
+
     tile_buffer, tberr := render.vbuffer_reserve(tile_vbuffer, u32(len(app.canvas_gpu_tiles) * size_of(render.Vertex_Data_Tile)))
     if tberr != nil {
         log.error(tberr)
@@ -680,6 +682,11 @@ main :: proc() {
                     #partial switch a.type {
                         case .QUIT:
                             break main_loop
+                        case .FLIP_CANVAS:
+                            mouse: [2]f32
+                            m_state := sdl.GetMouseState(&mouse.x, &mouse.y)
+                            view_set_pivot(&view, mouse)
+                            view_flip(&view)
                     }
                 case Action_Parameter:
                     log.debug("Parameter Action:", a.type, "value:", a.value)
@@ -1094,7 +1101,7 @@ main :: proc() {
         
         free_all(context.temp_allocator)
 
-        // evtm := sdl.WaitEventTimeout(nil, -1)
+        evtm := sdl.WaitEventTimeout(nil, -1)
     }
 
    

@@ -28,10 +28,16 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
     add_keybind(kb_map,
         Input_Event_Key{
             ctx = .PAINTING,
-            key = .LSHIFT,
-            mod = {.LSHIFT}
+            key = .L,
         },
         Action_Held{type = .TOGGLE_ALT_BRUSH})
+
+    add_keybind(kb_map,
+        Input_Event_Key{
+            ctx = .PAINTING,
+            key = .H,
+        },
+        Action_Simple{type = .FLIP_CANVAS})
 
     add_keybind(kb_map,
         Input_Event_Key{
@@ -62,15 +68,7 @@ create_default_keybinds :: proc(bind_list: ^Action_Binds) {
         },
         Action_Parameter{type = .TOOL_SIZE_SCALING, value = 0.6})
     
-    
-    add_keybind(kb_map,
-        Input_Event_Key{
-            ctx = .PAINTING,
-            key = .H,
-            use_repeat = true,
-            ignore_mod = true,
-        },
-        Action_Simple{type = .FLIP_CANVAS})
+
 
     add_keybind(kb_map,
         Input_Event_Key{

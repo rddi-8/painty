@@ -448,7 +448,7 @@ compose_main :: proc(app: ^Application) {
     ctn := mu.get_current_container(ctx)
     app.ui_context.mouse_captured |= point_is_inside(ctn, app.mouse_pos)
 
-    mu.layout_row(ctx, {100, 100, 100, 100, 60, 300, 100, 100, 200})
+    mu.layout_row(ctx, {100, 100, 100, 100, 60, 300, 60, 60, 60, 100, 100, 200})
 
     if .SUBMIT in mu.button(ctx, "Q. Save") {
         save_img(app.current_canvas.composite_layer)
@@ -480,6 +480,15 @@ compose_main :: proc(app: ^Application) {
         canvas_center.x = f32(app.window_size.x/2)
         canvas_center.y = f32(app.window_size.y/2)
         view_set_pivot(&view, canvas_center)
+    }
+    if .SUBMIT in mu.button(ctx, "0.5X") {
+        view.scale = 0.5
+    }
+    if .SUBMIT in mu.button(ctx, "1X") {
+        view.scale = 1.0
+    }
+    if .SUBMIT in mu.button(ctx, "2X") {
+        view.scale = 2.0
     }
 
     if .SUBMIT in mu.button(ctx, "fit canvas") {
