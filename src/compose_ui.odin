@@ -427,18 +427,35 @@ compose_tool_settings :: proc(app: ^Application, container_state: ^UI_Panel) {
                 }
             }
             mu.layout_row(ctx, {i32(100*ctx.style.scale), i32(24*ctx.style.scale), -1})
+
+            mu.label(ctx, "Min Size (%)")
+            mu.layout_next(ctx)
+            mu.slider(ctx, &g_tool_state.min_size, 0, 1)
+
             mu.label(ctx, "Opacity")
             mu.checkbox(ctx, "  opacity",  &g_tool_state.opacity_press)
             mu.slider(ctx, &g_tool_state.opacity, 0, 1, 0.01)
+
+            mu.label(ctx, "Min Opacity")
+            mu.layout_next(ctx)
+            mu.slider(ctx, &g_tool_state.min_opacity, 0, 1)
+
             mu.label(ctx, "Flow")
             mu.checkbox(ctx, "  flow",  &g_tool_state.flow_press)
             mu.slider(ctx, &g_tool_state.flow, 0, 1, 0.01)
+
+            mu.label(ctx, "Min Flow")
+            mu.layout_next(ctx)
+            mu.slider(ctx, &g_tool_state.min_flow, 0, 1)
+
             mu.label(ctx, "Step Ratio")
             mu.layout_next(ctx)
             mu.slider(ctx, &g_tool_state.step, 0.01, 2, 0.01)
+
             mu.checkbox(ctx, "Multisample", &g_tool_state.multisample)
             mu.layout_next(ctx)
             mu.slider(ctx, &g_tool_state.multisample_range, 0.0, 100, 1)
+
             mu.layout_row(ctx, {ctn.body.w/3, ctn.body.w/3, -1})
             
         }

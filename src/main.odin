@@ -44,6 +44,7 @@ WINDOW_H :: 800
 
 RES_FONT :: "fonts/DroidSans.ttf"
 RES_ICON_ATLAS :: "fonts/icons.png"
+RES_CURSOR_CROSS :: "fonts/cursor_cross2.png"
 
 CANVAS_SIZE :: [2]int{256*15, 256*15}
 
@@ -137,6 +138,7 @@ f_pen_sens: f32
 
 
 
+sdl_cursor_crosshair_system: ^sdl.Cursor
 sdl_cursor_crosshair: ^sdl.Cursor
 
 pen_motion :[dynamic][2]f32
@@ -446,8 +448,13 @@ main :: proc() {
     app := new(Application)
     init_app(app, WINDOW_W, WINDOW_H, "Painty")
 
-    sdl_cursor_crosshair = sdl.CreateSystemCursor(.CROSSHAIR)
+    sdl_cursor_crosshair_system = sdl.CreateSystemCursor(.CROSSHAIR)
+    if (sdl_cursor_crosshair_system == nil) do fmt.printfln("CURSOR ERROR: %v", sdl.GetError())
+    crosshair_surf := sdl.LoadPNG(RES_CURSOR_CROSS)
+    if (crosshair_surf == nil) do fmt.printfln("CURSOR ERROR: %v", sdl.GetError())
+    sdl_cursor_crosshair = sdl.CreateColorCursor(crosshair_surf, 7, 7)
     if (sdl_cursor_crosshair == nil) do fmt.printfln("CURSOR ERROR: %v", sdl.GetError())
+
     ok := sdl.SetCursor(sdl_cursor_crosshair); assert(ok)
     
 
@@ -810,12 +817,12 @@ main :: proc() {
             }
         }
         else {
-            if pen_mode {
-                ok := sdl.HideCursor(); assert(ok)
-            }
-            else {
-                ok := sdl.ShowCursor(); assert(ok)
-            }
+            // if pen_mode {
+            //     ok := sdl.HideCursor(); assert(ok)
+            // }
+            // else {
+            //     ok := sdl.ShowCursor(); assert(ok)
+            // }
             ok := sdl.SetCursor(sdl_cursor_crosshair); assert(ok)
         }
         
@@ -833,21 +840,24 @@ main :: proc() {
             time = f_pen_state.timestamp,
         }
         if pen_mode && (g_tool_state.size_press) {
-            stroke_point.size = adjusted_pressure * f32(g_tool_state.size)
+            // stroke_point.size = adjusted_pressure * g_tool_state._size
+            stroke_point.size = math.lerp(g_tool_state._size * g_tool_state.min_size, g_tool_state._size, adjusted_pressure)
         }
         else {
-            stroke_point.size = f32(g_tool_state.size)
+            stroke_point.size = g_tool_state._size
         }
 
         if pen_mode && (g_tool_state.opacity_press) {
-            stroke_point.opacity = adjusted_pressure * g_tool_state.opacity
+            // stroke_point.opacity = adjusted_pressure * g_tool_state.opacity
+            stroke_point.opacity = math.lerp(g_tool_state.min_opacity, g_tool_state.opacity, adjusted_pressure)
         }
         else {
             stroke_point.opacity = g_tool_state.opacity
         }
 
         if pen_mode && (g_tool_state.flow_press) {
-            stroke_point.flow = adjusted_pressure * g_tool_state.flow
+            // stroke_point.flow = adjusted_pressure * g_tool_state.flow
+            stroke_point.flow = math.lerp(g_tool_state.min_flow, g_tool_state.flow, adjusted_pressure)
         }
         else {
             stroke_point.flow = g_tool_state.flow
